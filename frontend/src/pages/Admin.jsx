@@ -414,6 +414,74 @@ function AdminMatchRow({ match, onUpdated, users = [] }) {
   );
 }
 
+function CreateUserForm({ onCreated }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const { data } = await api.post("/admin/users", { name, email, password });
+      toast.success(`Usuario ${data.name} creado`);
+      onCreated(data);
+      setName(""); setEmail(""); setPassword(""); setOpen(false);
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || "No se pudo crear el usuario");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mb-4 btn-ghost text-sm border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 inline-flex items-center gap-2"
+      >
+        <Users className="w-4 h-4" /> Crear nuevo usuario
+      </button>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="card-surface p-5 mb-5 flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-bold text-zinc-200">Crear nuevo usuario</span>
+        <button type="button" onClick={() => setOpen(false)} className="text-zinc-500 hover:text-zinc-300">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <input
+          type="text" placeholder="Nombre" value={name} onChange={(e) => setName(e.target.value)}
+          required className="bg-zinc-800 border border-white/10 text-zinc-200 text-sm rounded-lg px-3 py-2 outline-none focus:border-sky-500/50 placeholder:text-zinc-500"
+        />
+        <input
+          type="email" placeholder="Correo electrónico" value={email} onChange={(e) => setEmail(e.target.value)}
+          required className="bg-zinc-800 border border-white/10 text-zinc-200 text-sm rounded-lg px-3 py-2 outline-none focus:border-sky-500/50 placeholder:text-zinc-500"
+        />
+        <input
+          type="password" placeholder="Contraseña (mín. 6 caracteres)" value={password} onChange={(e) => setPassword(e.target.value)}
+          required minLength={6} className="bg-zinc-800 border border-white/10 text-zinc-200 text-sm rounded-lg px-3 py-2 outline-none focus:border-sky-500/50 placeholder:text-zinc-500"
+        />
+      </div>
+      <div className="flex gap-2">
+        <button type="submit" disabled={busy} className="btn-primary text-sm">
+          {busy ? "Creando…" : "Crear usuario"}
+        </button>
+        <button type="button" onClick={() => setOpen(false)} className="btn-ghost text-sm">
+          Cancelar
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function PaidToggle({ paid, onClick, busy, testId }) {
   return (
     <button
@@ -535,6 +603,8 @@ function UsersTab({ onlineUsers, onlineCount }) {
           </div>
         )}
       </div>
+
+      <CreateUserForm onCreated={(u) => setUsers((prev) => [...prev, u])} />
 
       {loading ? (
         <div className="text-zinc-400">Cargando inscritos…</div>

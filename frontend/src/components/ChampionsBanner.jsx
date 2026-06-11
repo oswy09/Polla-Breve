@@ -14,7 +14,7 @@ const compactCOP = (n) => {
 
 export default function MundialBanner() {
   const [stats, setStats] = useState({
-    participants: 0, paid_participants: 0, total_collected_cop: 0, entry_fee_cop: 30000,
+    participants: 0, total_collected_cop: 0, entry_fee_cop: 30000,
     prize_first_cop: 0, prize_second_cop: 0, prize_third_cop: 0,
     prize_first_pct: 50, prize_second_pct: 23, prize_third_pct: 15,
   });
@@ -74,7 +74,6 @@ export default function MundialBanner() {
             <div className="label-eyebrow">Inscritos</div>
           </div>
           <div className="font-display font-black text-xl text-slate-900">{stats.participants}</div>
-          <div className="text-[11px] text-slate-400 mt-0.5">{stats.paid_participants} han pagado</div>
         </div>
 
         {/* Bolsa */}
@@ -87,7 +86,7 @@ export default function MundialBanner() {
             {formatCOP(stats.total_collected_cop)}
           </div>
           <div className="text-[11px] text-emerald-600/70 mt-0.5">
-            {stats.paid_participants} × {formatCOP(stats.entry_fee_cop)}
+            {stats.participants} × {formatCOP(stats.entry_fee_cop)}
           </div>
         </div>
 

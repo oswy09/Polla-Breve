@@ -676,19 +676,16 @@ async function getDailyHero() {
 }
 
 async function getStats() {
-  const [{ count: enrolled, error: e1 }, { count: paid, error: e2 }] = await Promise.all([
-    supabase.from("public_profiles").select("id", { count: "exact", head: true }).eq("active", true),
-    supabase.from("public_profiles").select("id", { count: "exact", head: true }).eq("active", true).eq("paid", true),
-  ]);
-  if (e1) throw e1;
-  if (e2) throw e2;
+  const { count, error } = await supabase
+    .from("public_profiles")
+    .select("id", { count: "exact", head: true })
+    .eq("active", true);
+  if (error) throw error;
 
-  const participants = enrolled || 0;
-  const paidCount = paid || 0;
-  const total = paidCount * ENTRY_FEE_COP;
+  const participants = count || 0;
+  const total = participants * ENTRY_FEE_COP;
   return {
     participants,
-    paid_participants: paidCount,
     total_collected_cop: total,
     entry_fee_cop: ENTRY_FEE_COP,
     prize_first_cop: Math.floor((total * PRIZE_PCT[0]) / 100),
@@ -698,6 +695,36 @@ async function getStats() {
     prize_second_pct: PRIZE_PCT[1],
     prize_third_pct: PRIZE_PCT[2],
   };
+}
+
+async function createUserByAdmin(payload) {
+  await getCurrentProfile({ requireAdmin: true });
+  const name = String(payload?.name || "").trim();
+  const email = String(payload?.email || "").trim();
+  const password = String(payload?.password || "").trim();
+  if (!name) throw httpError(400, "El nombre es requerido");
+  if (!email) throw httpError(400, "El correo es requerido");
+  if (!password || password.length < 6) throw httpError(400, "La contraseña debe tener al menos 6 caracteres");
+
+  // Use a secondary client so signUp doesn't replace the admin's session
+  const { createClient } = await import("@supabase/supabase-js");
+  const tempClient = createClient(
+    process.env.REACT_APP_SUPABASE_URL,
+    process.env.REACT_APP_SUPABASE_ANON_KEY,
+    { auth: { persistSession: false, autoRefreshToken: false } }
+  );
+
+  const { data, error } = await tempClient.auth.signUp({ email, password, options: { data: { name } } });
+  if (error) throw httpError(400, error.message);
+  if (!data?.user) throw httpError(500, "No se pudo crear el usuario");
+
+  // Upsert profile (in case trigger didn't fire yet)
+  await supabase.from("profiles").upsert(
+    { id: data.user.id, email, name, role: "user", paid: false, active: true },
+    { onConflict: "id" }
+  );
+
+  return { id: data.user.id, name, email, role: "user", paid: false };
 }
 
 async function listAdminUsers() {
@@ -912,6 +939,7 @@ export const api = {
     const { pathname } = parseRequestPath(path);
     if (pathname === "/predictions")       return { data: await upsertPrediction(payload) };
     if (pathname === "/admin/predictions") return { data: await upsertPredictionByAdmin(payload) };
+    if (pathname === "/admin/users")       return { data: await createUserByAdmin(payload) };
     if (pathname === "/chat/messages")     return { data: await sendChatMessage(payload) };
     if (pathname === "/bonus")             return { data: await upsertBonus(payload) };
     if (pathname === "/daily-trivia/answer") return { data: await answerDailyQuestion(payload) };
