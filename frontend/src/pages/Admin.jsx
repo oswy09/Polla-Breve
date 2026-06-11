@@ -4,7 +4,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "../components/ui/dropdown-menu";
 import { toast } from "sonner";
-import { ShieldCheck, RotateCcw, Users, Trophy, Check, X, Trash2, ClipboardList, Lock, LockOpen, MoreVertical, Flag, Save, RefreshCw } from "lucide-react";
+import { ShieldCheck, RotateCcw, Users, Trophy, Check, X, Trash2, ClipboardList, Lock, LockOpen, MoreVertical, Flag, Save, RefreshCw, HelpCircle } from "lucide-react";
 import { getInitials, triggerSync } from "../lib/api";
 import { useLive } from "../lib/live";
 
@@ -880,6 +880,105 @@ function PredictionsTab() {
   );
 }
 
+function TriviaStatusTab() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [{ data: users }, { data: ranking }] = await Promise.all([
+        api.get("/admin/users"),
+        api.get("/ranking"),
+      ]);
+      // Get today's UTC date string
+      const now = new Date();
+      const todayStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`;
+
+      // Fetch trivia responses for all non-admin users
+      const normalUsers = users.filter(u => u.role !== "admin");
+      const triviaResults = await Promise.all(
+        normalUsers.map(u =>
+          api.get(`/users/${u.id}/trivia`)
+            .then(({ data: trivias }) => ({
+              user: u,
+              answeredToday: trivias.some(t => t.answered_date === todayStr),
+              correct: trivias.find(t => t.answered_date === todayStr)?.is_correct ?? null,
+            }))
+            .catch(() => ({ user: u, answeredToday: false, correct: null }))
+        )
+      );
+
+      const answered = triviaResults.filter(r => r.answeredToday);
+      const pending = triviaResults.filter(r => !r.answeredToday);
+      setData({ answered, pending, todayStr });
+    } catch (err) {
+      toast.error("Error cargando trivia");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);// eslint-disable-line react-hooks/exhaustive-deps
+
+  if (loading) return <div className="text-slate-400 py-8 text-sm">Cargando...</div>;
+  if (!data) return null;
+
+  const { answered, pending, todayStr } = data;
+  const dayNum = Math.floor((new Date(todayStr + "T00:00:00Z") - new Date("2026-06-11T00:00:00Z")) / 86400000) + 1;
+
+  return (
+    <div className="space-y-6 animate-fade-up">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-display font-bold text-xl text-slate-800">Trivia del día — Día {dayNum}</h2>
+          <p className="text-xs text-slate-400 mt-0.5">{todayStr} · {answered.length} respondieron · {pending.length} pendientes</p>
+        </div>
+        <button onClick={load} className="text-xs text-slate-500 hover:text-slate-700 flex items-center gap-1 border border-slate-200 rounded-lg px-3 py-1.5">
+          <RefreshCw className="w-3 h-3" /> Actualizar
+        </button>
+      </div>
+
+      {/* Pendientes */}
+      <div>
+        <h3 className="text-sm font-bold text-rose-600 mb-2 flex items-center gap-1.5">
+          <X className="w-4 h-4" /> Faltan por responder ({pending.length})
+        </h3>
+        {pending.length === 0 ? (
+          <p className="text-sm text-slate-400">¡Todos respondieron hoy! 🎉</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {pending.map(r => (
+              <span key={r.user.id} className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-rose-50 border border-rose-200 text-rose-700">
+                {r.user.name}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Respondieron */}
+      <div>
+        <h3 className="text-sm font-bold text-emerald-600 mb-2 flex items-center gap-1.5">
+          <Check className="w-4 h-4" /> Ya respondieron ({answered.length})
+        </h3>
+        {answered.length === 0 ? (
+          <p className="text-sm text-slate-400">Nadie ha respondido aún.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {answered.map(r => (
+              <span key={r.user.id} className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border ${r.correct ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-slate-100 border-slate-200 text-slate-600"}`}>
+                {r.user.name}
+                {r.correct ? " ✓" : " ✗"}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Admin() {
   const [tab, setTab] = useState("matches");
   const [syncing, setSyncing] = useState(false);
@@ -947,9 +1046,13 @@ export default function Admin() {
         {tabBtn("matches", <Trophy className="w-4 h-4" />, "Partidos", "admin-tab-matches")}
         {tabBtn("users", <Users className="w-4 h-4" />, "Inscritos", "admin-tab-users")}
         {tabBtn("predictions", <ClipboardList className="w-4 h-4" />, "Pronósticos", "admin-tab-predictions")}
+        {tabBtn("trivia", <HelpCircle className="w-4 h-4" />, "Trivia", "admin-tab-trivia")}
       </div>
 
-      {tab === "matches" ? <MatchesTab /> : tab === "users" ? <UsersTab onlineUsers={onlineUsers} onlineCount={onlineCount} /> : <PredictionsTab />}
+      {tab === "matches" ? <MatchesTab /> :
+       tab === "users" ? <UsersTab onlineUsers={onlineUsers} onlineCount={onlineCount} /> :
+       tab === "trivia" ? <TriviaStatusTab /> :
+       <PredictionsTab />}
     </div>
   );
 }
