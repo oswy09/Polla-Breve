@@ -895,8 +895,8 @@ function TriviaStatusTab() {
       const now = new Date();
       const todayStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`;
 
-      // Fetch trivia responses for all non-admin users
-      const normalUsers = users.filter(u => u.role !== "admin");
+      // Fetch trivia responses for all users including admin
+      const normalUsers = users;
       const triviaResults = await Promise.all(
         normalUsers.map(u =>
           api.get(`/users/${u.id}/trivia`)
