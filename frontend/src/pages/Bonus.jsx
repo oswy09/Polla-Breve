@@ -47,8 +47,8 @@ const BONUS_TYPES = [
   },
 ];
 
-const TRIVIA_TIMER_SECONDS = 15;
-const TRIVIA_TEST_MODE = true;
+const TRIVIA_TIMER_SECONDS = 20;
+const TRIVIA_START_DATE_MS = new Date("2026-06-11T00:00:00Z").getTime();
 
 function notifyRankingRefresh() {
   const tick = String(Date.now());
@@ -56,14 +56,13 @@ function notifyRankingRefresh() {
   window.dispatchEvent(new Event("ranking:refresh"));
 }
 
-function TriviaCard() {
+function triviaDay(dateStr) {
+  const d = new Date(dateStr + "T00:00:00Z").getTime();
+  return Math.floor((d - TRIVIA_START_DATE_MS) / 86400000) + 1;
+}
+
+function TriviaCard({ onAnswered }) {
   const { user } = useAuth();
-  const [testOffset] = useState(0);
-  const [testRound, setTestRound] = useState(() => {
-    const saved = localStorage.getItem("trivia_test_round");
-    const parsed = Number(saved);
-    return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0;
-  });
   const [trivia, setTrivia] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selectedIndex, setSelectedIndex] = useState(null);
@@ -71,12 +70,15 @@ function TriviaCard() {
   const [revealed, setRevealed] = useState(false);
   const [timeLeft, setTimeLeft] = useState(TRIVIA_TIMER_SECONDS);
   const [timerActive, setTimerActive] = useState(false);
-  const [changingQuestion, setChangingQuestion] = useState(false);
 
-  const loadTrivia = async (offset = testOffset, dayOffset = testRound) => {
+  const now = new Date();
+  const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`;
+  const localKey = user ? `trivia_reveal_${user.id}_${dateStr}` : null;
+
+  const loadTrivia = async () => {
     setLoading(true);
     try {
-      const { data } = await api.get(`/daily-trivia/question?testOffset=${offset}&testDayOffset=${dayOffset}`);
+      const { data } = await api.get("/daily-trivia/question");
       setTrivia(data);
     } catch (err) {
       console.error(err);
@@ -85,46 +87,7 @@ function TriviaCard() {
     }
   };
 
-  const now = new Date();
-  const yyyy = now.getUTCFullYear();
-  const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(now.getUTCDate()).padStart(2, '0');
-  const dateStr = `${yyyy}-${mm}-${dd}`;
-  const localKey = user ? `trivia_reveal_${user.id}_${dateStr}_${testOffset}_${testRound}` : null;
-
-  const clearRevealState = () => {
-    if (localKey) {
-      localStorage.removeItem(localKey);
-    }
-    setRevealed(false);
-    setTimeLeft(TRIVIA_TIMER_SECONDS);
-    setTimerActive(false);
-    setSelectedIndex(null);
-  };
-
-  useEffect(() => {
-    loadTrivia(testOffset, testRound);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [testOffset, testRound]);
-
-  const startNewRound = (withToast = false) => {
-    clearRevealState();
-    setChangingQuestion(true);
-    setTestRound((prev) => {
-      const next = prev + 1;
-      localStorage.setItem("trivia_test_round", String(next));
-      return next;
-    });
-    if (withToast) {
-      toast.info("Pregunta reiniciada para otra prueba.");
-    }
-  };
-
-  useEffect(() => {
-    if (!loading) {
-      setChangingQuestion(false);
-    }
-  }, [loading]);
+  useEffect(() => { loadTrivia(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (trivia && !trivia.answered && localKey) {
@@ -140,26 +103,20 @@ function TriviaCard() {
         }
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trivia, localKey]);
+  }, [trivia, localKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let interval = null;
     if (timerActive && timeLeft > 0) {
-      interval = setInterval(() => {
-        setTimeLeft(prev => prev - 1);
-      }, 1000);
+      interval = setInterval(() => setTimeLeft(p => p - 1), 1000);
     } else if (timerActive && timeLeft === 0) {
       autoSubmitTimeout();
     }
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timerActive, timeLeft]);
+  }, [timerActive, timeLeft]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleReveal = () => {
-    if (localKey) {
-      localStorage.setItem(localKey, String(Date.now()));
-    }
+    if (localKey) localStorage.setItem(localKey, String(Date.now()));
     setRevealed(true);
     setTimeLeft(TRIVIA_TIMER_SECONDS);
     setTimerActive(true);
@@ -169,29 +126,22 @@ function TriviaCard() {
     setSubmitting(true);
     setTimerActive(false);
     try {
-      await api.post("/daily-trivia/answer", {
-        question_id: trivia.question.id,
-        selected_index: -1,
-        testDayOffset: testRound,
-      });
-      toast.error(TRIVIA_TEST_MODE ? "Tiempo agotado. 0 puntos." : "Tiempo agotado.");
-      startNewRound(false);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSubmitting(false);
-    }
+      await api.post("/daily-trivia/answer", { question_id: trivia.question.id, selected_index: -1 });
+      toast.error("Tiempo agotado. Sin puntos esta vez.");
+      await loadTrivia();
+      if (onAnswered) onAnswered();
+    } catch (err) { console.error(err); }
+    finally { setSubmitting(false); }
   };
 
   const handleSubmit = async () => {
     if (selectedIndex == null || submitting) return;
     setSubmitting(true);
-    setTimerActive(false); // Stop timer
+    setTimerActive(false);
     try {
       const { data } = await api.post("/daily-trivia/answer", {
         question_id: trivia.question.id,
         selected_index: selectedIndex,
-        testDayOffset: testRound,
       });
       if (data.is_correct) {
         notifyRankingRefresh();
@@ -199,7 +149,8 @@ function TriviaCard() {
       } else {
         toast.error("Respuesta incorrecta.");
       }
-      startNewRound(false);
+      await loadTrivia();
+      if (onAnswered) onAnswered();
     } catch (err) {
       toast.error(formatApiError(err.response?.data?.detail) || "Error al responder");
     } finally {
@@ -215,16 +166,16 @@ function TriviaCard() {
   if (answered) {
     return (
       <div className="card-surface p-5 border-l-4 border-l-amber-500 bg-gradient-to-br from-white to-amber-50/20 animate-fade-up font-sans">
+        <div className="flex items-center gap-2 mb-3">
+          <HelpCircle className="w-5 h-5 text-amber-600" />
+          <span className="label-eyebrow text-amber-600 font-bold">Trivia Diaria (+0.5 pt.)</span>
+        </div>
         <div className="text-center py-5">
-          <p className="text-sm text-slate-600 mb-4">Preparando la siguiente ronda de prueba...</p>
-          <button
-            type="button"
-            onClick={() => startNewRound(true)}
-            className="btn-primary text-sm px-6 py-2.5"
-            disabled={changingQuestion}
-          >
-            {changingQuestion ? "Cargando..." : "Reiniciar pregunta"}
-          </button>
+          <div className="w-14 h-14 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center mx-auto mb-3">
+            <Check className="w-7 h-7 text-emerald-500" />
+          </div>
+          <p className="font-semibold text-slate-700">¡Ya respondiste la trivia de hoy!</p>
+          <p className="text-sm text-slate-500 mt-1">Vuelve mañana para una nueva pregunta.</p>
         </div>
       </div>
     );
@@ -236,22 +187,14 @@ function TriviaCard() {
         <div className="flex items-center gap-2 mb-3">
           <HelpCircle className="w-5 h-5 text-amber-600 animate-pulse" />
           <span className="label-eyebrow text-amber-600 font-bold">Trivia Diaria (+0.5 pt.)</span>
-          {TRIVIA_TEST_MODE && (
-            <span className="ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700">
-              Modo pruebas
-            </span>
-          )}
         </div>
-
         <div className="text-center py-6 px-4">
           <div className="w-16 h-16 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center mx-auto mb-4 animate-bounce">
             <HelpCircle className="w-8 h-8 text-amber-600" />
           </div>
-          <h3 className="font-display font-bold text-slate-800 text-lg mb-2">
-            Responder Quiz del día
-          </h3>
+          <h3 className="font-display font-bold text-slate-800 text-lg mb-2">Quiz del día</h3>
           <p className="text-xs text-slate-500 max-w-sm mx-auto mb-5 leading-relaxed">
-            Al hacer clic, se revelará la pregunta y tendrás <strong>15 segundos</strong> para responder. ¡Solo tienes una oportunidad!
+            Al hacer clic se revelará la pregunta y tendrás <strong>20 segundos</strong> para responder. ¡Solo tienes una oportunidad!
           </p>
           <button
             type="button"
@@ -271,52 +214,92 @@ function TriviaCard() {
         <div className="flex items-center gap-2">
           <HelpCircle className="w-5 h-5 text-emerald-600 animate-pulse" />
           <span className="label-eyebrow text-emerald-600 font-bold">Trivia Diaria</span>
-          {TRIVIA_TEST_MODE && (
-            <span className="text-[10px] text-slate-400 font-semibold">(Pregunta fija temporal)</span>
-          )}
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-semibold text-slate-500">Tiempo:</span>
-          <span className={`font-mono text-lg font-black ${timeLeft <= 5 ? "text-rose-600 animate-pulse scale-110" : "text-amber-600"}`}>
+          <span className={`font-mono text-lg font-black ${timeLeft <= 5 ? "text-rose-600 animate-pulse" : "text-amber-600"}`}>
             {timeLeft}s
           </span>
         </div>
       </div>
-
-      <h3 className="font-semibold text-slate-800 text-sm sm:text-base mb-4">
-        {question.question}
-      </h3>
-
+      <h3 className="font-semibold text-slate-800 text-sm sm:text-base mb-4">{question.question}</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4">
         {question.options.map((opt, idx) => {
           const isSelected = idx === selectedIndex;
-          const btnClass = "text-left px-4 py-3 rounded-xl border text-sm font-semibold transition-all duration-150 " + 
-            (isSelected 
-              ? "bg-emerald-600 border-emerald-600 text-white shadow-sm" 
-              : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300");
-
           return (
             <button
               key={idx}
               type="button"
               disabled={submitting}
               onClick={() => setSelectedIndex(idx)}
-              className={btnClass}
+              className={"text-left px-4 py-3 rounded-xl border text-sm font-semibold transition-all duration-150 " +
+                (isSelected ? "bg-emerald-600 border-emerald-600 text-white shadow-sm" : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300")}
             >
               {opt}
             </button>
           );
         })}
       </div>
-
       <button
         type="button"
-        disabled={selectedIndex == null || submitting || changingQuestion}
+        disabled={selectedIndex == null || submitting}
         onClick={handleSubmit}
         className="btn-primary w-full text-sm inline-flex justify-center items-center gap-2"
       >
         {submitting ? "Enviando..." : "Enviar Respuesta"}
       </button>
+    </div>
+  );
+}
+
+function TriviaHistory({ userId, refreshKey }) {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!userId) return;
+    setLoading(true);
+    api.get(`/users/${userId}/trivia`)
+      .then(({ data }) => {
+        const sorted = [...data].sort((a, b) => a.answered_date.localeCompare(b.answered_date));
+        setHistory(sorted);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [userId, refreshKey]);
+
+  if (loading) return null;
+  if (history.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+      <h2 className="font-display font-bold text-lg text-slate-800 flex items-center gap-2">
+        <HelpCircle className="w-5 h-5 text-amber-500" />
+        Historial Trivia
+      </h2>
+      {history.map((item) => {
+        const day = triviaDay(item.answered_date);
+        const correct = item.is_correct;
+        return (
+          <div
+            key={item.question_id}
+            className={`card-surface p-4 border-l-4 ${correct ? "border-l-emerald-400" : "border-l-rose-400"} animate-fade-up`}
+          >
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Día {day}</span>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${correct ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-rose-50 text-rose-700 border border-rose-200"}`}>
+                {correct ? "✓ +0.5 pts" : "✗ 0 pts"}
+              </span>
+            </div>
+            <p className="text-sm font-semibold text-slate-700 mb-2">{item.question}</p>
+            <div className="text-xs text-slate-500 space-y-0.5">
+              <p>Tu respuesta: <span className={`font-semibold ${correct ? "text-emerald-600" : "text-rose-600"}`}>{item.selected_option}</span></p>
+              {!correct && <p>Correcta: <span className="font-semibold text-emerald-600">{item.correct_option}</span></p>}
+              {item.note && <p className="mt-1 italic text-slate-400">💡 {item.note}</p>}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -459,10 +442,12 @@ function BonusCard({ bonus: bonusDef, existing, onSaved, hasStarted, uniqueTeams
 }
 
 export default function Bonus() {
+  const { user } = useAuth();
   const [bonuses, setBonuses] = useState([]);
   const [matches, setMatches] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hasStarted, setHasStarted] = useState(false);
+  const [triviaRefreshKey, setTriviaRefreshKey] = useState(0);
 
   useEffect(() => {
     Promise.all([
@@ -515,7 +500,10 @@ export default function Bonus() {
         <>
           {/* Trivia Diaria — inicia el 11 jun 00:00 UTC, independiente del primer partido */}
           {new Date() >= new Date("2026-06-11T00:00:00Z") ? (
-            <TriviaCard />
+            <>
+              <TriviaCard onAnswered={() => setTriviaRefreshKey(k => k + 1)} />
+              <TriviaHistory userId={user?.id} refreshKey={triviaRefreshKey} />
+            </>
           ) : (
             <div className="card-surface p-5 border-l-4 border-l-amber-400 bg-amber-50/30">
               <div className="flex items-center gap-2 mb-1">
