@@ -513,8 +513,8 @@ export default function Bonus() {
         <div className="text-slate-400 py-8">Cargando…</div>
       ) : (
         <>
-          {/* Trivia Diaria */}
-          {hasStarted ? (
+          {/* Trivia Diaria — inicia el 11 jun 00:00 UTC, independiente del primer partido */}
+          {new Date() >= new Date("2026-06-11T00:00:00Z") ? (
             <TriviaCard />
           ) : (
             <div className="card-surface p-5 border-l-4 border-l-amber-400 bg-amber-50/30">
