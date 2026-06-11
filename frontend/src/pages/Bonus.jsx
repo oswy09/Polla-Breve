@@ -294,8 +294,8 @@ function TriviaHistory({ userId, refreshKey }) {
             <p className="text-sm font-semibold text-slate-700 mb-2">{item.question}</p>
             <div className="text-xs text-slate-500 space-y-0.5">
               <p>Tu respuesta: <span className={`font-semibold ${correct ? "text-emerald-600" : "text-rose-600"}`}>{item.selected_option}</span></p>
-              {!correct && <p>Correcta: <span className="font-semibold text-emerald-600">{item.correct_option}</span></p>}
-              {item.note && <p className="mt-1 italic text-slate-400">💡 {item.note}</p>}
+              {!correct && !item.hide_today && <p>Correcta: <span className="font-semibold text-emerald-600">{item.correct_option}</span></p>}
+              {item.note && !item.hide_today && <p className="mt-1 italic text-slate-400">💡 {item.note}</p>}
             </div>
           </div>
         );

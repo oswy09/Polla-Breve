@@ -1280,7 +1280,8 @@ async function getUserBonus(targetUserId) {
 }
 
 async function getUserTrivia(targetUserId) {
-  await getCurrentProfile({ requireAuth: true });
+  const currentUser = await getCurrentProfile({ requireAuth: true });
+  const isOwnProfile = currentUser.id === targetUserId;
 
   const { data: questions, error: qErr } = await supabase
     .from("trivia_questions")
@@ -1303,17 +1304,20 @@ async function getUserTrivia(targetUserId) {
       if (!resp) return null;
       
       const isToday = resp.answered_date === todayStr;
+      // Hide today's answer only when viewing someone else's trivia (privacy)
+      const hideToday = isToday && !isOwnProfile;
       return {
         question_id: q.id,
         question: q.question,
         options: q.options,
         correct_option: q.options[q.correct_index],
-        note: isToday ? null : (q.note || null),
+        note: hideToday ? null : (q.note || null),
         answered: true,
-        is_correct: isToday ? null : resp.is_correct,
-        selected_option: isToday ? "Oculto hoy" : q.options[resp.selected_index],
+        is_correct: hideToday ? null : resp.is_correct,
+        selected_option: hideToday ? "Oculto hoy" : q.options[resp.selected_index],
         answered_date: resp.answered_date,
-        is_today: isToday
+        is_today: isToday,
+        hide_today: hideToday
       };
     })
     .filter(Boolean);

@@ -294,7 +294,7 @@ function UserTransparencyModal({ user, onClose }) {
                           </div>
                         </div>
                         <div className="shrink-0">
-                          {t.is_today ? (
+                          {t.hide_today ? (
                             <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-500">
                               🔒 Oculto hoy
                             </span>
