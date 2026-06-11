@@ -216,10 +216,7 @@ async function upsertPredictionByAdmin(payload) {
   const userId = payload?.user_id;
   if (!userId) throw httpError(400, "Debes seleccionar un usuario");
 
-  const match = await getMatchById(payload.match_id);
-  if (match.status === "finalized" || match.predictions_locked) {
-    throw httpError(400, match.status === "finalized" ? "El partido ya finalizó" : "Los pronósticos están cerrados");
-  }
+  await getMatchById(payload.match_id); // verify match exists
   if (
     payload.pred_home == null || payload.pred_away == null ||
     payload.pred_home < 0 || payload.pred_home > 20 ||
@@ -724,7 +721,13 @@ async function createUserByAdmin(payload) {
     { onConflict: "id" }
   );
 
-  return { id: data.user.id, name, email, role: "user", paid: false };
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("id, name, email, role, paid, created_at")
+    .eq("id", data.user.id)
+    .maybeSingle();
+
+  return normalizeProfile(profile || { id: data.user.id, email, name, role: "user", paid: false, created_at: new Date().toISOString() });
 }
 
 async function listAdminUsers() {
