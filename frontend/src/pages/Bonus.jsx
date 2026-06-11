@@ -137,7 +137,11 @@ function TriviaCard({ onAnswered }) {
     }
   };
 
-  if (loading || !user) return null;
+  if (loading || !user) return (
+    <div className="card-surface p-5 border-l-4 border-l-amber-400 animate-fade-up">
+      <div className="text-sm text-slate-400">Cargando trivia...</div>
+    </div>
+  );
   if (!trivia) return null;
 
   const { question, answered } = trivia;
