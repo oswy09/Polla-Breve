@@ -71,23 +71,11 @@ function TriviaCard({ onAnswered }) {
   const [timeLeft, setTimeLeft] = useState(TRIVIA_TIMER_SECONDS);
   const [timerActive, setTimerActive] = useState(false);
 
-  const now = new Date();
-  const dateStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`;
-  const localKey = user ? `trivia_reveal_${user.id}_${dateStr}` : null;
-
   const loadTrivia = async () => {
     setLoading(true);
     try {
       const { data } = await api.get("/daily-trivia/question");
       setTrivia(data);
-      // If not answered yet, clear any stale reveal timer from a previous session
-      if (!data.answered && localKey) {
-        localStorage.removeItem(localKey);
-        setRevealed(false);
-        setTimerActive(false);
-        setTimeLeft(TRIVIA_TIMER_SECONDS);
-        setSelectedIndex(null);
-      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -96,22 +84,6 @@ function TriviaCard({ onAnswered }) {
   };
 
   useEffect(() => { loadTrivia(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    if (trivia && !trivia.answered && localKey) {
-      const revealedAt = localStorage.getItem(localKey);
-      if (revealedAt) {
-        const elapsed = Math.floor((Date.now() - Number(revealedAt)) / 1000);
-        if (elapsed >= TRIVIA_TIMER_SECONDS) {
-          autoSubmitTimeout();
-        } else {
-          setRevealed(true);
-          setTimeLeft(TRIVIA_TIMER_SECONDS - elapsed);
-          setTimerActive(true);
-        }
-      }
-    }
-  }, [trivia, localKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let interval = null;
@@ -124,7 +96,6 @@ function TriviaCard({ onAnswered }) {
   }, [timerActive, timeLeft]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleReveal = () => {
-    if (localKey) localStorage.setItem(localKey, String(Date.now()));
     setRevealed(true);
     setTimeLeft(TRIVIA_TIMER_SECONDS);
     setTimerActive(true);
