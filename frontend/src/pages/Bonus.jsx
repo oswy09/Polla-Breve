@@ -513,19 +513,23 @@ export default function Bonus() {
         <div className="text-slate-400 py-8">Cargando…</div>
       ) : (
         <>
-          {/* Trivia — deshabilitada hasta el inicio del Mundial */}
-          <div className="card-surface p-5 border-l-4 border-l-amber-400 bg-amber-50/30">
-            <div className="flex items-center gap-2 mb-1">
-              <HelpCircle className="w-5 h-5 text-amber-500" />
-              <span className="label-eyebrow text-amber-600 font-bold">Trivia Diaria</span>
-              <span className="ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700">
-                Próximamente
-              </span>
+          {/* Trivia Diaria */}
+          {hasStarted ? (
+            <TriviaCard />
+          ) : (
+            <div className="card-surface p-5 border-l-4 border-l-amber-400 bg-amber-50/30">
+              <div className="flex items-center gap-2 mb-1">
+                <HelpCircle className="w-5 h-5 text-amber-500" />
+                <span className="label-eyebrow text-amber-600 font-bold">Trivia Diaria</span>
+                <span className="ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700">
+                  Próximamente
+                </span>
+              </div>
+              <p className="text-sm text-slate-500 mt-1">
+                La trivia diaria inicia el <strong className="text-slate-700">jueves 11 de junio</strong> con el arranque del Mundial 2026. ¡Prepárate para sumar puntos extra respondiendo preguntas de fútbol!
+              </p>
             </div>
-            <p className="text-sm text-slate-500 mt-1">
-              La trivia diaria inicia el <strong className="text-slate-700">jueves 11 de junio</strong> con el arranque del Mundial 2026. ¡Prepárate para sumar puntos extra respondiendo preguntas de fútbol!
-            </p>
-          </div>
+          )}
 
           {/* Predicciones de torneo */}
           <div className="space-y-4">
