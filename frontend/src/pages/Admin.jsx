@@ -373,99 +373,43 @@ function AdminMatchRow({ match, onUpdated, users = [] }) {
         )}
       </form>
 
-    </div>
-  );
-  return (
-    <div className="card-surface p-4 flex items-center gap-4" data-testid={`admin-row-${match.id}`}>
-      {/* Info del partido */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-          <span className="label-eyebrow !text-purple-300/80 text-[10px]">{match.ronda || "Champions"}</span>
-          <span className={`text-[10px] uppercase tracking-[0.15em] font-bold px-1.5 py-0.5 rounded ${
-            finalized ? "text-emerald-300 bg-emerald-500/10 border border-emerald-500/20" : "text-purple-300 bg-purple-500/10 border border-purple-500/20"
-          }`}>
-            {finalized ? "Finalizado" : "Pendiente"}
-          </span>
-          {!finalized && locked && (
-            <span className="text-[10px] uppercase tracking-[0.15em] font-bold px-1.5 py-0.5 rounded text-amber-300 bg-amber-500/10 border border-amber-500/20 inline-flex items-center gap-1">
-              <Lock className="w-2.5 h-2.5" /> Cerrado
-            </span>
-          )}
-          <span className="text-[10px] text-zinc-500 ml-auto">{formatDate(match.match_date)}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <img src={match.logo_home} alt="" className="w-7 h-7 object-contain shrink-0" />
-          <span className="font-semibold text-sm truncate">{match.home_team}</span>
-          <span className="text-zinc-600 text-xs font-bold mx-1">vs</span>
-          <span className="font-semibold text-sm truncate">{match.away_team}</span>
-          <img src={match.logo_away} alt="" className="w-7 h-7 object-contain shrink-0" />
-        </div>
-      </div>
+      {/* Ingresar pronóstico por usuario */}
+      {!finalized && users.length > 0 && (
+        <form onSubmit={savePredictionForUser} className="border-t border-white/10 pt-4 flex flex-col gap-2">
+          <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-400">
+            Ingresar pronóstico por usuario
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={predictionUserId}
+              onChange={(e) => setPredictionUserId(e.target.value)}
+              className="text-sm bg-zinc-800 border border-white/10 text-zinc-200 rounded-lg px-3 py-1.5 outline-none focus:border-sky-500/50 flex-1 min-w-[140px]"
+            >
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
+            <input
+              type="number" min={0} max={20} value={predHome}
+              onChange={(e) => setPredHome(e.target.value)}
+              placeholder="L" className="score-input !w-12 !h-9 !text-base"
+            />
+            <span className="font-display font-bold text-zinc-600 text-sm">:</span>
+            <input
+              type="number" min={0} max={20} value={predAway}
+              onChange={(e) => setPredAway(e.target.value)}
+              placeholder="V" className="score-input !w-12 !h-9 !text-base"
+            />
+            <button
+              type="submit" disabled={predictionBusy}
+              className="btn-ghost text-sm border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/10 inline-flex items-center gap-1"
+            >
+              <ClipboardList className="w-3.5 h-3.5" /> Guardar pick
+            </button>
+          </div>
+        </form>
+      )}
 
-      {/* Marcador inline */}
-      <form onSubmit={saveScore} className="flex items-center gap-1.5 shrink-0">
-        <input
-          type="number" min={0} max={20} value={home} onChange={(e) => setHome(e.target.value)}
-          disabled={busy} className="score-input !w-12 !h-10 !text-lg"
-          data-testid={`admin-home-${match.id}`}
-        />
-        <span className="font-display font-bold text-zinc-600 text-sm">:</span>
-        <input
-          type="number" min={0} max={20} value={away} onChange={(e) => setAway(e.target.value)}
-          disabled={busy} className="score-input !w-12 !h-10 !text-lg"
-          data-testid={`admin-away-${match.id}`}
-        />
-        <button
-          type="submit" disabled={busy}
-          className="h-10 px-2.5 rounded-lg border border-sky-500/30 text-sky-300 hover:bg-sky-500/10 transition-colors"
-          title="Guardar marcador"
-        >
-          <Save className="w-4 h-4" />
-        </button>
-      </form>
-
-      {/* Menú kebab */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            disabled={busy}
-            className="h-10 w-10 flex items-center justify-center rounded-lg border border-white/10 text-zinc-400 hover:text-white hover:bg-white/5 transition-colors shrink-0"
-            title="Más opciones"
-          >
-            <MoreVertical className="w-4 h-4" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-52 bg-zinc-900 border border-white/10 text-sm">
-          {!finalized && (
-            <DropdownMenuItem
-              onClick={finalize}
-              className="flex items-center gap-2 cursor-pointer text-emerald-300 focus:text-emerald-200 focus:bg-emerald-500/10"
-            >
-              <Flag className="w-4 h-4" /> Finalizar partido
-            </DropdownMenuItem>
-          )}
-          {finalized && (
-            <DropdownMenuItem
-              onClick={reopen}
-              className="flex items-center gap-2 cursor-pointer text-zinc-300 focus:bg-white/5"
-            >
-              <RotateCcw className="w-4 h-4" /> Reabrir partido
-            </DropdownMenuItem>
-          )}
-          {!finalized && <DropdownMenuSeparator className="bg-white/10" />}
-          {!finalized && (
-            <DropdownMenuItem
-              onClick={toggleLock}
-              className={`flex items-center gap-2 cursor-pointer ${locked ? "text-emerald-300 focus:bg-emerald-500/10" : "text-amber-300 focus:bg-amber-500/10"}`}
-            >
-              {locked
-                ? <><LockOpen className="w-4 h-4" /> Abrir pronósticos</>
-                : <><Lock className="w-4 h-4" /> Cerrar pronósticos</>
-              }
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
     </div>
   );
 }

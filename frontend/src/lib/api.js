@@ -676,17 +676,19 @@ async function getDailyHero() {
 }
 
 async function getStats() {
-  const { count, error } = await supabase
-    .from("public_profiles")
-    .select("id", { count: "exact", head: true })
-    .eq("active", true)
-    .eq("paid", true);
-  if (error) throw error;
+  const [{ count: enrolled, error: e1 }, { count: paid, error: e2 }] = await Promise.all([
+    supabase.from("public_profiles").select("id", { count: "exact", head: true }).eq("active", true),
+    supabase.from("public_profiles").select("id", { count: "exact", head: true }).eq("active", true).eq("paid", true),
+  ]);
+  if (e1) throw e1;
+  if (e2) throw e2;
 
-  const participants = count || 0;
-  const total = participants * ENTRY_FEE_COP;
+  const participants = enrolled || 0;
+  const paidCount = paid || 0;
+  const total = paidCount * ENTRY_FEE_COP;
   return {
     participants,
+    paid_participants: paidCount,
     total_collected_cop: total,
     entry_fee_cop: ENTRY_FEE_COP,
     prize_first_cop: Math.floor((total * PRIZE_PCT[0]) / 100),

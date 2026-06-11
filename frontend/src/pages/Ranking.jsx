@@ -71,28 +71,26 @@ function UserTransparencyModal({ user, onClose }) {
       onClick={onClose}
     >
       <div 
-        className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col overflow-hidden border border-slate-100 animate-scale-up"
+        className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-100 animate-scale-up"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="p-5 border-b border-slate-100 flex items-start justify-between bg-gradient-to-r from-emerald-50/50 to-white shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-emerald-600 text-white font-display font-bold flex items-center justify-center text-base shadow-sm">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2 bg-gradient-to-r from-emerald-50/50 to-white shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-full bg-emerald-600 text-white font-display font-bold flex items-center justify-center text-sm sm:text-base shadow-sm shrink-0">
               {getInitials(user.name)}
             </div>
-            <div>
-              <h2 className="font-display font-black text-xl text-slate-800 tracking-tight">
-                Picks de {user.name}
+            <div className="min-w-0">
+              <h2 className="font-display font-black text-base sm:text-xl text-slate-800 tracking-tight truncate">
+                {user.name}
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Transparencia de pronósticos del participante
-              </p>
+              <p className="text-[11px] text-slate-400">Picks del participante</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="card-surface px-3 py-1 flex items-center gap-1.5 bg-emerald-50 border-emerald-100">
-              <Trophy className="w-4 h-4 text-emerald-600" />
-              <span className="font-display font-black text-emerald-600 text-base">{user.points}</span>
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="card-surface px-2.5 py-1 flex items-center gap-1 bg-emerald-50 border-emerald-100">
+              <Trophy className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="font-display font-black text-emerald-600 text-sm sm:text-base">{user.points}</span>
               <span className="text-[10px] text-emerald-700 font-bold">pts</span>
             </div>
             <button
@@ -106,39 +104,39 @@ function UserTransparencyModal({ user, onClose }) {
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b border-slate-100 bg-slate-50/50 p-1 gap-1 shrink-0">
+        <div className="flex border-b border-slate-100 bg-slate-50/50 p-1 gap-1 shrink-0 overflow-x-auto">
           <button
             type="button"
             onClick={() => setTab("predictions")}
-            className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all ${
+            className={`shrink-0 px-3 py-2.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
               tab === "predictions"
                 ? "bg-white text-slate-800 shadow-sm border border-slate-100"
                 : "text-slate-400 hover:text-slate-600 hover:bg-slate-100/50"
             }`}
           >
-            Pronósticos de Partidos ({predictions.length})
+            Pronósticos ({predictions.length})
           </button>
           <button
             type="button"
             onClick={() => setTab("bonus")}
-            className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all ${
+            className={`shrink-0 px-3 py-2.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
               tab === "bonus"
                 ? "bg-white text-slate-800 shadow-sm border border-slate-100"
                 : "text-slate-400 hover:text-slate-600 hover:bg-slate-100/50"
             }`}
           >
-            Predicciones Bonus
+            Bonus
           </button>
           <button
             type="button"
             onClick={() => setTab("trivia")}
-            className={`flex-1 py-2.5 text-xs font-bold rounded-lg transition-all ${
+            className={`shrink-0 px-3 py-2.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap ${
               tab === "trivia"
                 ? "bg-white text-slate-800 shadow-sm border border-slate-100"
                 : "text-slate-400 hover:text-slate-600 hover:bg-slate-100/50"
             }`}
           >
-            Trivia Diaria ({trivias.length})
+            Trivia ({trivias.length})
           </button>
         </div>
 
