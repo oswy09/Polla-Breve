@@ -1030,14 +1030,53 @@ export function formatDate(iso) {
 // DAILY TRIVIA LOGIC
 // ─────────────────────────────────────────────────────────────────────────────
 
-function getDailyQuestionIndex(userId, dateStr, totalQuestions = 30) {
-  const str = userId + dateStr;
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
+const TOTAL_TRIVIA_QUESTIONS = 42;
+// Tournament start date — used to compute "day number" for question ordering
+const TRIVIA_START_DATE = new Date("2026-06-11T00:00:00Z");
+
+/**
+ * Seeded LCG shuffle — produces a stable, user-specific permutation of question IDs.
+ * Same userId always yields the same order; different userIds yield different orders.
+ */
+function seededShuffle(arr, seed) {
+  let s = (seed | 0) || 1;
+  const next = () => {
+    s = (Math.imul(1664525, s) + 1013904223) | 0;
+    return (s >>> 0) / 4294967296;
+  };
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(next() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
   }
-  return (Math.abs(hash) % totalQuestions) + 1;
+  return a;
+}
+
+function hashStringToInt(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+/**
+ * Returns the question ID for a given user on a given UTC date.
+ * - Each user gets a unique random order of all 42 questions (seeded by userId).
+ * - Day 0 = June 11 2026; day 1 = June 12; etc.
+ * - After 42 days the cycle repeats, but the tournament only lasts ~46 days so
+ *   only 4 questions could repeat — well after the final.
+ */
+function getDailyQuestionForUser(userId, dateStr, totalQuestions = TOTAL_TRIVIA_QUESTIONS) {
+  const userSeed = hashStringToInt(userId);
+  const allIds = Array.from({ length: totalQuestions }, (_, i) => i + 1);
+  const userOrder = seededShuffle(allIds, userSeed);
+
+  const current = new Date(dateStr + "T00:00:00Z");
+  const daysSinceStart = Math.floor((current - TRIVIA_START_DATE) / 86400000);
+  // Keep index in [0, total-1], handle dates before start gracefully
+  const idx = ((daysSinceStart % totalQuestions) + totalQuestions) % totalQuestions;
+  return userOrder[idx];
 }
 
 function getUtcDateStrWithOffset(dayOffset = 0) {
@@ -1054,16 +1093,16 @@ function getUtcDateStrWithOffset(dayOffset = 0) {
 async function getDailyQuestion(testOffset = 0, testDayOffset = 0) {
   const user = await getCurrentProfile({ requireAuth: true });
   const dateStr = getUtcDateStrWithOffset(Number(testDayOffset) || 0);
-  
-  const baseId = getDailyQuestionIndex(user.id, dateStr, 30);
-  const questionId = ((baseId - 1 + testOffset) % 30) + 1;
-  
+
+  const baseId = getDailyQuestionForUser(user.id, dateStr);
+  const questionId = ((baseId - 1 + Number(testOffset)) % TOTAL_TRIVIA_QUESTIONS) + 1;
+
   const { data: q, error: qErr } = await supabase
     .from("trivia_questions")
     .select("id, question, options")
     .eq("id", questionId)
     .maybeSingle();
-    
+
   if (qErr || !q) throw httpError(500, "No se pudo cargar la pregunta del día");
 
   const { data: resp } = await supabase
@@ -1076,30 +1115,31 @@ async function getDailyQuestion(testOffset = 0, testDayOffset = 0) {
   if (resp) {
     const { data: fullQ } = await supabase
       .from("trivia_questions")
-      .select("correct_index")
+      .select("correct_index, note")
       .eq("id", questionId)
       .single();
-      
+
     return {
       answered: true,
       question: {
         id: q.id,
         question: q.question,
         options: q.options,
-        correct_index: fullQ?.correct_index
+        correct_index: fullQ?.correct_index,
+        note: fullQ?.note || null,
       },
       selected_index: resp.selected_index,
-      is_correct: resp.is_correct
+      is_correct: resp.is_correct,
     };
   }
-  
+
   return {
     answered: false,
     question: {
       id: q.id,
       question: q.question,
-      options: q.options
-    }
+      options: q.options,
+    },
   };
 }
 
@@ -1244,7 +1284,7 @@ async function getUserTrivia(targetUserId) {
 
   const { data: questions, error: qErr } = await supabase
     .from("trivia_questions")
-    .select("id, question, options, correct_index")
+    .select("id, question, options, correct_index, note")
     .order("id", { ascending: true });
   if (qErr) throw qErr;
 
@@ -1268,6 +1308,7 @@ async function getUserTrivia(targetUserId) {
         question: q.question,
         options: q.options,
         correct_option: q.options[q.correct_index],
+        note: isToday ? null : (q.note || null),
         answered: true,
         is_correct: isToday ? null : resp.is_correct,
         selected_option: isToday ? "Oculto hoy" : q.options[resp.selected_index],
