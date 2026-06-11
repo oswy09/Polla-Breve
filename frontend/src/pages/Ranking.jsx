@@ -283,42 +283,34 @@ function UserTransparencyModal({ user, onClose }) {
                   No hay trivias respondidas todavía.
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {trivias.map((t) => (
-                    <div key={t.question_id} className="p-4 bg-slate-50 rounded-xl border border-slate-200/60 flex items-center justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
-                          Trivia Diaria (Pregunta {t.question_id})
-                        </div>
-                        <div className="font-semibold text-slate-800 text-sm mt-1 leading-normal">
-                          {t.question}
-                        </div>
-                        <div className="text-xs text-slate-500 mt-1.5">
-                          Respuesta seleccionada: <strong className="text-slate-700 font-semibold">{t.selected_option}</strong>
-                        </div>
-                        {!t.is_today && (
-                          <div className="text-[10.5px] text-slate-400 mt-0.5">
-                            Respuesta correcta: <span className="font-semibold text-slate-600">{t.correct_option}</span>
+                <div className="space-y-2">
+                  {[...trivias].sort((a,b) => a.answered_date.localeCompare(b.answered_date)).map((t) => {
+                    const dayNum = Math.floor((new Date(t.answered_date + "T00:00:00Z") - new Date("2026-06-11T00:00:00Z")) / 86400000) + 1;
+                    return (
+                      <div key={t.question_id} className="p-3 bg-slate-50 rounded-xl border border-slate-200/60 flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                            Pregunta — Día {dayNum}
                           </div>
-                        )}
+                        </div>
+                        <div className="shrink-0">
+                          {t.is_today ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-500">
+                              🔒 Oculto hoy
+                            </span>
+                          ) : t.is_correct ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700">
+                              ✓ +0.5 pt
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-50 border border-rose-100 text-rose-600">
+                              ✗ 0 pt
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div className="shrink-0">
-                        {t.is_today ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-500">
-                            🔒 Oculto hoy
-                          </span>
-                        ) : t.is_correct ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700">
-                            ✓ Correcto (+0.5 pt)
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-50 border border-rose-100 text-rose-600">
-                            ✗ Incorrecto (+0 pt)
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
