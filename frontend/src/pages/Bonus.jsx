@@ -80,6 +80,14 @@ function TriviaCard({ onAnswered }) {
     try {
       const { data } = await api.get("/daily-trivia/question");
       setTrivia(data);
+      // If not answered yet, clear any stale reveal timer from a previous session
+      if (!data.answered && localKey) {
+        localStorage.removeItem(localKey);
+        setRevealed(false);
+        setTimerActive(false);
+        setTimeLeft(TRIVIA_TIMER_SECONDS);
+        setSelectedIndex(null);
+      }
     } catch (err) {
       console.error(err);
     } finally {
