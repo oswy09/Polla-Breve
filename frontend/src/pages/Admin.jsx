@@ -127,7 +127,7 @@ const persistLocalPreviewPredictions = (predictions) => {
   } catch {}
 };
 
-function AdminMatchRow({ match, onUpdated, users = [] }) {
+function AdminMatchRow({ match, onUpdated, users = [], predictedUserIds = new Set() }) {
   const [home, setHome] = useState(match.home_score ?? "");
   const [away, setAway] = useState(match.away_score ?? "");
   const [predictionUserId, setPredictionUserId] = useState("");
@@ -374,7 +374,33 @@ function AdminMatchRow({ match, onUpdated, users = [] }) {
       </form>
 
       {/* Ingresar pronóstico por usuario */}
-      {!finalized && users.length > 0 && (
+      {/* Quién falta por pronosticar */}
+      {users.length > 0 && (() => {
+        const missing = users.filter((u) => u.role !== "admin" && !predictedUserIds.has(u.id));
+        if (missing.length === 0) return null;
+        return (
+          <div className="border-t border-white/10 pt-3 flex flex-col gap-1.5">
+            <div className="text-[11px] font-bold uppercase tracking-widest text-rose-400/80 flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-400 inline-block" />
+              Faltan por pronosticar ({missing.length})
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {missing.map((u) => (
+                <span
+                  key={u.id}
+                  onClick={() => setPredictionUserId(u.id)}
+                  className="text-[11px] px-2 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/20 text-rose-300 cursor-pointer hover:bg-rose-500/20 transition-colors"
+                  title="Clic para seleccionar"
+                >
+                  {u.name}
+                </span>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {users.length > 0 && (
         <form onSubmit={savePredictionForUser} className="border-t border-white/10 pt-4 flex flex-col gap-2">
           <div className="text-[11px] font-bold uppercase tracking-widest text-zinc-400">
             Ingresar pronóstico por usuario
@@ -383,7 +409,7 @@ function AdminMatchRow({ match, onUpdated, users = [] }) {
             <select
               value={predictionUserId}
               onChange={(e) => setPredictionUserId(e.target.value)}
-              className="text-sm bg-zinc-800 border border-white/10 text-zinc-200 rounded-lg px-3 py-1.5 outline-none focus:border-sky-500/50 flex-1 min-w-[140px]"
+              className="text-sm bg-white border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 outline-none focus:border-emerald-500 cursor-pointer flex-1 min-w-[140px]"
             >
               {users.map((u) => (
                 <option key={u.id} value={u.id}>{u.name}</option>
@@ -392,13 +418,13 @@ function AdminMatchRow({ match, onUpdated, users = [] }) {
             <input
               type="number" min={0} max={20} value={predHome}
               onChange={(e) => setPredHome(e.target.value)}
-              placeholder="L" className="score-input !w-12 !h-9 !text-base"
+              placeholder="L" className="score-input !w-12 !h-9 !text-base !bg-white !text-slate-800 !border-slate-200"
             />
-            <span className="font-display font-bold text-zinc-600 text-sm">:</span>
+            <span className="font-display font-bold text-zinc-400 text-sm">:</span>
             <input
               type="number" min={0} max={20} value={predAway}
               onChange={(e) => setPredAway(e.target.value)}
-              placeholder="V" className="score-input !w-12 !h-9 !text-base"
+              placeholder="V" className="score-input !w-12 !h-9 !text-base !bg-white !text-slate-800 !border-slate-200"
             />
             <button
               type="submit" disabled={predictionBusy}
@@ -669,6 +695,7 @@ function UsersTab({ onlineUsers, onlineCount }) {
 function MatchesTab() {
   const [matches, setMatches] = useState([]);
   const [users, setUsers] = useState([]);
+  const [predGroups, setPredGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const localPreview = isLocalAdminPreviewEnabled();
 
@@ -682,12 +709,14 @@ function MatchesTab() {
     }
 
     try {
-      const [matchesResponse, usersResponse] = await Promise.all([
+      const [matchesResponse, usersResponse, predsResponse] = await Promise.all([
         api.get("/matches"),
         api.get("/admin/users"),
+        api.get("/admin/predictions"),
       ]);
       setMatches(matchesResponse.data);
       setUsers(usersResponse.data);
+      setPredGroups(predsResponse.data);
     } finally {
       setLoading(false);
     }
@@ -698,17 +727,33 @@ function MatchesTab() {
   const onUpdated = (m) => {
     setMatches((prev) => {
       const next = prev.map((x) => (x.id === m.id ? m : x));
-      if (localPreview) {
-        persistLocalPreviewMatches(next);
-      }
+      if (localPreview) persistLocalPreviewMatches(next);
       return next;
     });
+    // Reload predictions after a result change
+    if (!localPreview) {
+      api.get("/admin/predictions").then(({ data }) => setPredGroups(data)).catch(() => {});
+    }
   };
+
+  // Build a map: matchId → Set of user_ids that have a prediction
+  const predictedByMatch = new Map();
+  for (const { match, predictions } of predGroups) {
+    predictedByMatch.set(match.id, new Set(predictions.map((p) => p.user_id)));
+  }
 
   if (loading) return <div className="text-zinc-400">Cargando…</div>;
   return (
     <div className="space-y-4">
-      {matches.map((m) => <AdminMatchRow key={m.id} match={m} onUpdated={onUpdated} users={users} />)}
+      {matches.map((m) => (
+        <AdminMatchRow
+          key={m.id}
+          match={m}
+          onUpdated={onUpdated}
+          users={users}
+          predictedUserIds={predictedByMatch.get(m.id) || new Set()}
+        />
+      ))}
     </div>
   );
 }
