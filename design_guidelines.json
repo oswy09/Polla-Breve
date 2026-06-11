@@ -1,0 +1,101 @@
+{
+  "project_name": "Polla Breve",
+  "theme": "Dark",
+  "archetype": "5 (Jewel & Luxury) + 2 (Performance Pro)",
+  "vibe": "Premium, minimalist, high-end sports prediction with dramatic dark mode and purple accents",
+  "colors": {
+    "background_base": "#030008",
+    "background_card": "#0A0514",
+    "primary_accent": "#8B5CF6",
+    "primary_accent_hover": "#7C3AED",
+    "success_neon": "#10B981",
+    "text_primary": "#FFFFFF",
+    "text_secondary": "#A1A1AA",
+    "border_color": "rgba(255,255,255,0.08)"
+  },
+  "typography": {
+    "fonts_to_install": [
+      "Outfit",
+      "Manrope"
+    ],
+    "headings": {
+      "family": "Outfit",
+      "weight": "font-bold to font-black",
+      "tracking": "tracking-tight",
+      "h1": "text-4xl sm:text-5xl lg:text-6xl",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl",
+      "h3": "text-xl sm:text-2xl"
+    },
+    "body": {
+      "family": "Manrope",
+      "weight": "font-normal",
+      "size": "text-base sm:text-sm"
+    },
+    "labels": {
+      "family": "Manrope",
+      "weight": "font-bold",
+      "style": "uppercase tracking-[0.2em] text-xs text-zinc-400"
+    }
+  },
+  "spacing_and_layout": {
+    "general": "Generous spacing. Use p-6, p-8 for cards.",
+    "container": "max-w-6xl mx-auto px-4",
+    "grid_strategy": "Control Room layout for dashboard/ranking, Tetris Grid for match cards if needed. Default to grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 for match lists."
+  },
+  "components": {
+    "surface_strategy": "Glassmorphism (Crystal Glass) for sticky headers and modals (backdrop-blur-xl bg-[#030008]/70 border-b border-white/10). Solid slightly elevated dark backgrounds for Match Cards with 1px border.",
+    "inputs": "Shadcn UI Form & Input. bg-white/5 border border-white/10 focus:ring-2 focus:ring-purple-500 rounded-lg text-center font-bold text-xl.",
+    "buttons": "Shadcn UI Button. primary uses bg-purple-600 hover:bg-purple-500 text-white rounded-lg shadow-[0_0_15px_rgba(139,92,246,0.3)] transition-all. secondary uses bg-white/5 border border-white/10.",
+    "toast": "Use Sonner for 'Guardado con éxito'. Dark mode styling with emerald green check icon and text.",
+    "avatar": "Purple background (bg-purple-600) with white text initials, rounded-full.",
+    "tables": "Shadcn UI Table. border-collapse, subtle border-b border-white/10. Active user row highlighted with bg-purple-900/20."
+  },
+  "media_urls": {
+    "hero_login_background": {
+      "url": "https://images.unsplash.com/photo-1616514169928-a1e40c6f791c?crop=entropy&cs=srgb&fm=jpg",
+      "description": "Dark black sand with a soccer ball. Use with bg-black/60 overlay for login page background."
+    },
+    "dashboard_header_bg": {
+      "url": "https://images.unsplash.com/photo-1676746610993-fa0c050d1f6d?crop=entropy&cs=srgb&fm=jpg",
+      "description": "Abstract soccer stadium night light. Use at very low opacity (10%) as a page background texture."
+    },
+    "team_logos": [
+      {
+        "name": "Real Madrid",
+        "url": "https://upload.wikimedia.org/wikipedia/en/5/56/Real_Madrid_CF.svg"
+      },
+      {
+        "name": "Manchester City",
+        "url": "https://upload.wikimedia.org/wikipedia/en/e/eb/Manchester_City_FC_badge.svg"
+      },
+      {
+        "name": "Bayern Munich",
+        "url": "https://upload.wikimedia.org/wikipedia/commons/1/1b/FC_Bayern_M%C3%BCnchen_logo_%282017%29.svg"
+      },
+      {
+        "name": "Arsenal",
+        "url": "https://upload.wikimedia.org/wikipedia/en/5/53/Arsenal_FC.svg"
+      },
+      {
+        "name": "PSG",
+        "url": "https://upload.wikimedia.org/wikipedia/en/a/a7/Paris_Saint-Germain_F.C..svg"
+      }
+    ]
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "install_command": "yarn add @phosphor-icons/react",
+    "usage": "Use duotone or bold weights for strong sporting presence."
+  },
+  "instructions_to_main_agent": [
+    "Implement the UI entirely with Tailwind CSS and Shadcn UI.",
+    "Use standard HTML inputs customized via Tailwind for the exact score prediction logic, ensuring focus states have high contrast.",
+    "Ensure all interactive elements have data-testid attributes (e.g., data-testid='save-prediction-button', data-testid='login-submit-button').",
+    "Use pure HTML/Tailwind for main structural layouts to allow high customization, rather than restrictive layout components.",
+    "Apply backdrop-blur to sticky headers and navs, maintaining at least 1px border-white/10 for definition.",
+    "Do not use generic 'Inter' or 'Roboto'. Integrate 'Outfit' for headers and 'Manrope' for body from Google Fonts.",
+    "Ensure that 'Guardado con éxito' uses Sonner toast with a success state.",
+    "For the ranking, implement the point calculation logic efficiently and highlight the current logged-in user in the table.",
+    "DO NOT use placeholder images. Use the team logos provided in media_urls."
+  ]
+}

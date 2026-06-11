@@ -1,0 +1,45 @@
+{
+  "summary": "Tested Polla Breve full-stack app. Backend: 14/14 pytest tests passing covering auth (register/login/me/logout), matches list, predictions upsert, admin guards, score logic (3/2/1/0) with end-to-end ranking calc, and 'cannot predict finalized match' rule. Frontend smoke: admin login redirects to dashboard, header nav (Partidos/Ranking/Admin) present, 5 match cards with logos render, ranking page loads with 'Puntos' column, /admin accessible to admin and contains 'Finalizar', logout returns to /login, normal user redirected from /admin (lands on /login).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Register via UI", "issue": "Could not locate password input by placeholder 'Minimo 6 caracteres' in second run; first run showed register form correctly. Likely caused by accented character (Mínimo) or missing data-testid. Backend POST /api/auth/register works and frontend register flow worked when reached directly the first time.", "affected_selectors": ["input placeholder", "register form inputs"]},
+      {"flow": "Save prediction toast (UI)", "issue": "Could not be re-verified end-to-end via Playwright because user session was lost after register selector mismatch. Backend POST /api/predictions verified end-to-end (create+update+upsert)."}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Add data-testid attributes on Login/Register inputs and Dashboard score inputs + save buttons (e.g., login-email, login-password, login-submit, register-name, register-email, register-password, register-submit, match-card-{id}, score-local-{id}, score-visit-{id}, save-prediction-{id}, logout-button, ranking-row-{id}). This will make E2E robust.",
+    "(Optional) On admin-only routes for non-admin users, redirect to '/' instead of '/login' so the user stays logged in. Currently a logged-in normal user hitting /admin gets redirected to /login (works, but UX could be improved).",
+    "Consider returning 409 instead of 400 for duplicate email registration (semantics)."
+  ],
+  "critical_code_review_comments": [
+    "Pydantic v2 EmailStr requires email-validator; appears installed since register works. OK.",
+    "JWT secret is read from env without fallback - good (fails fast).",
+    "Cookie set with samesite='none' + secure=true: works only over HTTPS (preview URL). Dev on plain http://localhost will not receive cookie. Acceptable for this MVP since preview URL is HTTPS.",
+    "_score function correctly implements priority: exact > winner > partial-goals > none. Validated by ranking integration test.",
+    "Ranking endpoint excludes admin via {role: {$ne: 'admin'}} - validated by test_ranking_excludes_admin.",
+    "MongoDB ObjectId is excluded everywhere via projection {'_id': 0} - good.",
+    "seed_admin updates password if env ADMIN_PASSWORD changes (idempotent, good).",
+    "All endpoints prefixed with /api - good for ingress routing.",
+    "No explicit rate limiting / brute-force lockout on /auth/login (not requested for MVP, but worth noting)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_api.py"
+  ],
+  "success_rate": {"backend": "100% (14/14)", "frontend": "85% (6/7 flows verified)"},
+  "test_credentials": "admin@pollabreve.com / Admin123! (verified). Test users created via register endpoint at runtime.",
+  "seed_data_creation": "Backend seed (admin + 5 matches) verified working. Score logic test reopens all matches then finalizes 4 of them; cleanup not done, so after run some matches may remain finalized. Reopened all via admin API after testing so dashboard inputs are usable again.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend is solid with 14 passing pytest tests at /app/backend/tests/test_api.py. Use admin@pollabreve.com / Admin123!. The score test reopens then finalizes 4 of 5 matches; if you need pending matches for UI tests, call PUT /api/matches/{id}/reopen as admin first. Frontend lacks data-testid attributes which made Playwright selectors brittle - use placeholders (Tu nombre, tu@correo.com) or get_by_role for buttons (Iniciar sesión, Crear cuenta, Guardar). Cookies are httpOnly samesite=none secure=true via the preview HTTPS URL.",
+  "rca of the issue": "No production bugs found. Two test design issues fixed during run: (1) duplicate-register test originally used name='D' which failed Pydantic min_length=2 returning 422 instead of expected 400 - fixed to 'Dup'; (2) score test 'partial' case incorrectly used pred 1-5 vs real 1-2 where signs match (both away wins) so endpoint returned 2 (winner) instead of 1 (partial) - changed real to 1-0 so signs differ and home goals match, correctly yielding 1 point."
+}

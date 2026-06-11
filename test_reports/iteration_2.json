@@ -1,0 +1,39 @@
+{
+  "summary": "Tested new Polla Breve features: real UCL 2025-26 fixtures (5 matches with ronda), GET /api/results, GET /api/matches/{id}/leaderboard, GET /api/stats, ChampionsBanner UI, Resultados page with expandable top-5 leaderboard. Backend: 12/12 new pytest tests passing (in addition to existing 14/14 in test_api.py). Frontend: 9/9 UI checks passing — header has nav-results, dashboard shows champions-banner with stat-participants and stat-pot ($ COP formatted), match cards show ronda label, /resultados lists finalized matches with real score / user pick / points badge, clicking a row expands top-5 leaderboard.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_new_features.py",
+    "/app/backend/tests/test_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "GET /api/stats is unauthenticated. Intentional for the public banner, but exposes user count — acceptable for MVP.",
+    "/api/stats counts ALL non-admin users (including test/regression users left in DB), so 'Bolsa actual' inflates over time in this preview env. Consider seeding/cleaning in non-prod, or add a 'paid'/'active' flag if entry-fee accuracy ever matters in production.",
+    "/api/matches/{id}/leaderboard correctly excludes admin via role check after fetching predictions; OK. However, it calls find with $in on user_ids and then filters role!=admin in Python — clearer to add role filter to the Mongo query. Minor.",
+    "_score function is reused in both /ranking and /results — good DRY.",
+    "seed_matches uses SEED_VERSION migration which deletes old matches+predictions. Idempotent and safe.",
+    "All endpoints exclude MongoDB _id via projection {'_id': 0} — good.",
+    "Cookies httpOnly, samesite=none, secure=true — works on HTTPS preview URL.",
+    "Final fixture uses placeholder names 'Finalista 1' vs 'Finalista 2' with UCL crest — appropriate placeholder until SF results are known.",
+    "Frontend pages use data-testid extensively (nav-results, champions-banner, stat-participants, stat-pot, match-card-{id}, result-row-{id}, result-toggle-{id}, result-leaderboard-{id}) — testability is excellent."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_new_features.py"
+  ],
+  "success_rate": {"backend": "100% (12/12 new + 14/14 existing)", "frontend": "100% (9/9)"},
+  "test_credentials": "admin@pollabreve.com / Admin123! (admin). test@pollabreve.com / Test1234 (regular user). Multiple LB User N and NF User accounts created during testing remain in DB.",
+  "seed_data_creation": "Test left at least 1 match finalized (PSG vs Bayern Munich, 1–1) per the agent_to_agent_context_note so the user can browse /resultados. Multiple test users predict on that match so the leaderboard is non-empty (top 5 visible).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend has two test files: /app/backend/tests/test_api.py (auth/predictions/ranking — 14 tests) and /app/backend/tests/test_new_features.py (real UCL fixtures, /results, /leaderboard, /stats — 12 tests). Run all with: pytest /app/backend/tests/ -v. The new-features test file calls reopen-all then finalizes some matches; the final test_zz_leave_one_finalized ensures at least one stays finalized so /resultados has data. Frontend uses cookie auth (httpOnly samesite=none secure=true) over HTTPS preview URL only.",
+  "rca of the issue": "No bugs found. All new endpoints and UI features behave per spec."
+}

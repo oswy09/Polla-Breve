@@ -1,0 +1,34 @@
+{
+  "summary": "v2 testing of Polla Breve: admin user management (paid toggle, delete), stats with paid-only count + 70/20/10 prize distribution, ESPN CDN logos, /auth/me paid field, ranking now includes admin. Backend: 42/42 pytest tests passing (test_api.py 14, test_new_features.py 12 with 2 updated for v2, test_admin_users_v2.py 16 new). Frontend: full UI flow verified — login, ChampionsBanner with prize-distribution (70%=$21k / 20%=$6k / 10%=$3k), Admin tabs (Partidos/Inscritos), pre-created test user via separate request context, paid-toggle Pendiente↔Pagado, banner participants 1→2 after paid then 2→1 after delete, admin row has no delete button, /resultados and /ranking pages render (admin appears at #1 in ranking).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_admin_users_v2.py",
+    "/app/backend/tests/test_new_features.py",
+    "/app/backend/tests/test_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "DB residue: 18 leftover users from prior test iterations remain (LB User 0..5, NF User, Reg User, Dup, Score User, etc). User asked for a clean DB (only admin) — main agent should clean again or run a one-shot purge of non-admin users in dev. Stats already only counts paid=true so it's not user-facing, but Admin → Inscritos shows them.",
+    "/api/admin/users currently has no pagination — fine for an MVP polla but at >100 users add ?limit/?skip.",
+    "/api/admin/users/{id}/paid does not log who toggled — minimal audit trail. Consider adding updated_by/updated_at if it ever matters.",
+    "Confirm dialog for delete uses window.confirm — works but a shadcn AlertDialog would feel more polished.",
+    "usePolling does not expose a cleanup error or backoff on failed requests. If /api/stats keeps 5xx-ing, it'll silently keep retrying; acceptable for MVP.",
+    "/api/stats remains public (unauthenticated). Intentional for the marketing banner; acceptable.",
+    "DRY: ChampionsBanner and Admin both import formatCOP — extract to /lib/format.js.",
+    "data-testid coverage is excellent (champions-banner, prize-distribution, prize-amount-{1,2,3}, stat-participants, stat-pot, admin-tab-matches, admin-tab-users, admin-users-list, admin-user-row-{id}, admin-paid-toggle-{id}, admin-delete-{id}, admin-row-{id}, admin-home/away/finalize/reopen-{id}). Easy to test."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_api.py",
+    "/app/backend/tests/test_new_features.py",
+    "/app/backend/tests/test_admin_users_v2.py"
+  ],
+  "success_rate": {"backend": "100% (42/42)", "frontend": "100% (8/8 UI checks)"},
+  "test_credentials": "admin@pollabreve.com / Admin123!",
+  "seed_data_creation": "Tests left at least 1 finalized match (PSG vs Bayern 1-1 from prior iteration). Admin participates in ranking now and is at #1. ~18 non-admin test users still in DB from earlier iterations; main agent may want to drop them (they don't affect /api/stats since paid=false, but they do show in Admin → Inscritos).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Three backend test files in /app/backend/tests/: test_api.py (14), test_new_features.py (12), test_admin_users_v2.py (16). Run all with: pytest /app/backend/tests/ -v --junitxml=/app/test_reports/pytest/pytest_results.xml. Important: ranking and /matches/{id}/leaderboard now INCLUDE the admin per v2 requirements; tests assert that. /api/stats now counts ONLY users with paid=True — admin is seeded paid=True so participants is at least 1. Use brand-new browser context (browser.new_context()) when registering test users via API while the page is logged in as admin, otherwise the new user's cookie clobbers the admin session. UI flow validated end-to-end.",
+  "rca of the issue": "No bugs. All v2 features work as specified."
+}
