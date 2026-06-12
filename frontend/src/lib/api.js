@@ -267,11 +267,10 @@ async function upsertBonus(payload) {
     .limit(1)
     .maybeSingle();
 
-  if (!matchErr && firstMatch) {
-    const start = new Date(firstMatch.match_date);
-    if (new Date() >= start) {
-      throw httpError(400, "El torneo ya comenzó, no puedes cambiar tus predicciones bonus");
-    }
+  // Bonus predictions locked after June 16 2026 23:59 UTC
+  const BONUS_DEADLINE = new Date("2026-06-17T00:00:00Z");
+  if (new Date() >= BONUS_DEADLINE) {
+    throw httpError(400, "El plazo para predicciones bonus ha cerrado");
   }
 
   const row = {

@@ -439,10 +439,8 @@ export default function Bonus() {
     ]).then(([{ data: bData }, { data: mData }]) => {
       setBonuses(bData);
       setMatches(mData);
-      if (mData && mData.length > 0) {
-        const earliest = new Date(mData[0].match_date);
-        setHasStarted(new Date() >= earliest);
-      }
+      // Bonus predictions open until June 16 2026 23:59 UTC
+      setHasStarted(new Date() >= new Date("2026-06-17T00:00:00Z"));
     })
     .catch(() => {})
     .finally(() => setLoading(false));
