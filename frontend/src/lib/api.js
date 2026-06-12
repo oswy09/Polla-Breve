@@ -1078,8 +1078,9 @@ function getDailyQuestionForUser(userId, dateStr, totalQuestions = TOTAL_TRIVIA_
   return userOrder[idx];
 }
 
-function getUtcDateStrWithOffset(dayOffset = 0) {
-  const now = new Date();
+function getColombiaDateStr(dayOffset = 0) {
+  // Colombia is UTC-5, trivia day resets at midnight Colombia time
+  const now = new Date(Date.now() - 5 * 60 * 60 * 1000);
   if (Number.isFinite(dayOffset) && dayOffset !== 0) {
     now.setUTCDate(now.getUTCDate() + dayOffset);
   }
@@ -1091,7 +1092,7 @@ function getUtcDateStrWithOffset(dayOffset = 0) {
 
 async function getDailyQuestion(testOffset = 0, testDayOffset = 0) {
   const user = await getCurrentProfile({ requireAuth: true });
-  const dateStr = getUtcDateStrWithOffset(Number(testDayOffset) || 0);
+  const dateStr = getColombiaDateStr(Number(testDayOffset) || 0);
 
   const baseId = getDailyQuestionForUser(user.id, dateStr);
   const questionId = ((baseId - 1 + Number(testOffset)) % TOTAL_TRIVIA_QUESTIONS) + 1;
@@ -1152,7 +1153,7 @@ async function answerDailyQuestion(payload) {
     throw httpError(400, "Faltan parámetros de respuesta");
   }
 
-  const dateStr = getUtcDateStrWithOffset(dayOffset);
+  const dateStr = getColombiaDateStr(dayOffset);
 
   const { data: existing } = await supabase
     .from("daily_responses")
@@ -1201,11 +1202,7 @@ async function answerDailyQuestion(payload) {
 async function resetDailyQuestion() {
   const user = await getCurrentProfile({ requireAuth: true });
   
-  const now = new Date();
-  const yyyy = now.getUTCFullYear();
-  const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(now.getUTCDate()).padStart(2, '0');
-  const dateStr = `${yyyy}-${mm}-${dd}`;
+  const dateStr = getColombiaDateStr(0);
   
   const { error } = await supabase
     .from("daily_responses")
@@ -1295,7 +1292,7 @@ async function getUserTrivia(targetUserId) {
   if (rErr) throw rErr;
 
   const respMap = new Map(responses.map((r) => [r.question_id, r]));
-  const todayStr = getUtcDateStrWithOffset(0);
+  const todayStr = getColombiaDateStr(0);
 
   return questions
     .map((q) => {
