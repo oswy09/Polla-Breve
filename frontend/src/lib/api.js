@@ -919,6 +919,10 @@ export const api = {
       const testDayOffset = Number(searchParams.get("testDayOffset") || 0);
       return { data: await getDailyQuestion(offset, testDayOffset) };
     }
+    if (pathname === "/admin/trivia/question") {
+      const userId = searchParams.get("userId");
+      return { data: await getAdminTriviaQuestion(userId) };
+    }
 
     const userPredictionsMatch = pathname.match(/^\/users\/([^/]+)\/predictions$/);
     if (userPredictionsMatch) return { data: await getUserPredictions(userPredictionsMatch[1]) };
@@ -946,6 +950,7 @@ export const api = {
     if (pathname === "/bonus")             return { data: await upsertBonus(payload) };
     if (pathname === "/daily-trivia/answer") return { data: await answerDailyQuestion(payload) };
     if (pathname === "/daily-trivia/reset") return { data: await resetDailyQuestion() };
+    if (pathname === "/admin/trivia/answer") return { data: await answerTriviaByAdmin(payload) };
     throw httpError(404, `Ruta no implementada: POST ${pathname}`);
   },
 
@@ -1197,6 +1202,63 @@ async function answerDailyQuestion(payload) {
     is_correct: isCorrect,
     correct_index: q.correct_index
   };
+}
+
+async function getAdminTriviaQuestion(targetUserId) {
+  await getCurrentProfile({ requireAdmin: true });
+  const dateStr = getColombiaDateStr(0);
+  const questionId = getDailyQuestionForUser(targetUserId, dateStr);
+
+  const { data: q, error: qErr } = await supabase
+    .from("trivia_questions")
+    .select("id, question, options, correct_index")
+    .eq("id", questionId)
+    .maybeSingle();
+  if (qErr || !q) throw httpError(500, "No se pudo cargar la pregunta");
+
+  const { data: resp } = await supabase
+    .from("daily_responses")
+    .select("selected_index, is_correct")
+    .eq("user_id", targetUserId)
+    .eq("answered_date", dateStr)
+    .maybeSingle();
+
+  return { question: q, answered: !!resp, dateStr };
+}
+
+async function answerTriviaByAdmin(payload) {
+  await getCurrentProfile({ requireAdmin: true });
+  const { user_id, question_id, selected_index } = payload;
+  if (!user_id || question_id == null || selected_index == null) {
+    throw httpError(400, "Faltan parámetros");
+  }
+  const dateStr = getColombiaDateStr(0);
+
+  const { data: existing } = await supabase
+    .from("daily_responses")
+    .select("id")
+    .eq("user_id", user_id)
+    .eq("answered_date", dateStr)
+    .maybeSingle();
+  if (existing) throw httpError(400, "Este usuario ya respondió hoy");
+
+  const { data: q } = await supabase
+    .from("trivia_questions")
+    .select("correct_index")
+    .eq("id", question_id)
+    .maybeSingle();
+  if (!q) throw httpError(404, "Pregunta no encontrada");
+
+  const isCorrect = q.correct_index === selected_index;
+  const { error } = await supabase.from("daily_responses").insert({
+    user_id,
+    question_id,
+    selected_index,
+    is_correct: isCorrect,
+    answered_date: dateStr,
+  });
+  if (error) throw httpError(500, "No se pudo guardar la respuesta");
+  return { ok: true, is_correct: isCorrect, correct_index: q.correct_index };
 }
 
 async function resetDailyQuestion() {

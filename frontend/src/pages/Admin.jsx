@@ -880,6 +880,106 @@ function PredictionsTab() {
   );
 }
 
+function AdminTriviaAssign({ pendingUsers, onDone }) {
+  const [userId, setUserId] = useState("");
+  const [triviaData, setTriviaData] = useState(null);
+  const [loadingQ, setLoadingQ] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const loadQuestion = async (uid) => {
+    setUserId(uid);
+    setTriviaData(null);
+    setSelectedIndex(null);
+    if (!uid) return;
+    setLoadingQ(true);
+    try {
+      const { data } = await api.get(`/admin/trivia/question?userId=${uid}`);
+      setTriviaData(data);
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || "Error cargando pregunta");
+    } finally {
+      setLoadingQ(false);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (selectedIndex == null || submitting || !triviaData) return;
+    setSubmitting(true);
+    try {
+      const { data } = await api.post("/admin/trivia/answer", {
+        user_id: userId,
+        question_id: triviaData.question.id,
+        selected_index: selectedIndex,
+      });
+      const userName = pendingUsers.find(u => u.id === userId)?.name || "Usuario";
+      toast.success(`Trivia de ${userName} guardada — ${data.is_correct ? "✓ Correcto +0.5pts" : "✗ Incorrecto"}`);
+      setUserId("");
+      setTriviaData(null);
+      setSelectedIndex(null);
+      if (onDone) onDone();
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || "Error al guardar");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="card-surface p-5 border-l-4 border-l-amber-400 space-y-4">
+      <h3 className="font-bold text-slate-800 flex items-center gap-2">
+        <HelpCircle className="w-4 h-4 text-amber-500" /> Asignar trivia a usuario
+      </h3>
+
+      <select
+        value={userId}
+        onChange={e => loadQuestion(e.target.value)}
+        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 bg-white"
+      >
+        <option value="">— Selecciona un usuario pendiente —</option>
+        {pendingUsers.map(u => (
+          <option key={u.id} value={u.id}>{u.name}</option>
+        ))}
+      </select>
+
+      {loadingQ && <p className="text-sm text-slate-400">Cargando pregunta...</p>}
+
+      {triviaData && triviaData.answered && (
+        <p className="text-sm text-amber-600 font-semibold">Este usuario ya respondió hoy.</p>
+      )}
+
+      {triviaData && !triviaData.answered && (
+        <div className="space-y-3">
+          <p className="text-sm font-semibold text-slate-800">{triviaData.question.question}</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {triviaData.question.options.map((opt, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => setSelectedIndex(idx)}
+                className={"text-left px-4 py-3 rounded-xl border text-sm font-semibold transition-all " +
+                  (selectedIndex === idx
+                    ? "bg-emerald-600 border-emerald-600 text-white"
+                    : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50")}
+              >
+                {opt}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            disabled={selectedIndex == null || submitting}
+            onClick={handleSubmit}
+            className="btn-primary w-full text-sm"
+          >
+            {submitting ? "Guardando..." : "Guardar respuesta"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TriviaStatusTab() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -895,23 +995,31 @@ function TriviaStatusTab() {
       const now = new Date();
       const todayStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth()+1).padStart(2,'0')}-${String(now.getUTCDate()).padStart(2,'0')}`;
 
-      // Fetch trivia responses for all users including admin
-      const normalUsers = users;
+      // Colombia date for today
+      const colombiaNow = new Date(Date.now() - 5 * 60 * 60 * 1000);
+      const colombiaStr = `${colombiaNow.getUTCFullYear()}-${String(colombiaNow.getUTCMonth()+1).padStart(2,'0')}-${String(colombiaNow.getUTCDate()).padStart(2,'0')}`;
+
       const triviaResults = await Promise.all(
-        normalUsers.map(u =>
+        users.map(u =>
           api.get(`/users/${u.id}/trivia`)
-            .then(({ data: trivias }) => ({
-              user: u,
-              answeredToday: trivias.some(t => t.answered_date === todayStr),
-              correct: trivias.find(t => t.answered_date === todayStr)?.is_correct ?? null,
-            }))
-            .catch(() => ({ user: u, answeredToday: false, correct: null }))
+            .then(({ data: trivias }) => {
+              const todayTrivia = trivias.find(t => t.answered_date === colombiaStr);
+              return {
+                user: u,
+                answeredToday: !!todayTrivia,
+                correct: todayTrivia?.is_correct ?? null,
+                question: todayTrivia?.question ?? null,
+                selected_option: todayTrivia?.selected_option ?? null,
+                correct_option: todayTrivia?.correct_option ?? null,
+              };
+            })
+            .catch(() => ({ user: u, answeredToday: false, correct: null, question: null }))
         )
       );
 
       const answered = triviaResults.filter(r => r.answeredToday);
       const pending = triviaResults.filter(r => !r.answeredToday);
-      setData({ answered, pending, todayStr });
+      setData({ answered, pending, todayStr: colombiaStr });
     } catch (err) {
       toast.error("Error cargando trivia");
     } finally {
@@ -939,6 +1047,12 @@ function TriviaStatusTab() {
         </button>
       </div>
 
+      {/* Asignar trivia */}
+      <AdminTriviaAssign
+        pendingUsers={pending.map(r => r.user)}
+        onDone={load}
+      />
+
       {/* Pendientes */}
       <div>
         <h3 className="text-sm font-bold text-rose-600 mb-2 flex items-center gap-1.5">
@@ -965,12 +1079,23 @@ function TriviaStatusTab() {
         {answered.length === 0 ? (
           <p className="text-sm text-slate-400">Nadie ha respondido aún.</p>
         ) : (
-          <div className="flex flex-wrap gap-2">
+          <div className="space-y-2">
             {answered.map(r => (
-              <span key={r.user.id} className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold border ${r.correct ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "bg-slate-100 border-slate-200 text-slate-600"}`}>
-                {r.user.name}
-                {r.correct ? " ✓" : " ✗"}
-              </span>
+              <div key={r.user.id} className={`p-3 rounded-xl border text-xs ${r.correct ? "bg-emerald-50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-bold text-slate-800">{r.user.name}</span>
+                  <span className={`font-bold ${r.correct ? "text-emerald-600" : "text-rose-500"}`}>
+                    {r.correct ? "✓ +0.5 pts" : "✗ 0 pts"}
+                  </span>
+                </div>
+                {r.question && <p className="text-slate-500 mb-1">{r.question}</p>}
+                {r.selected_option && (
+                  <p className="text-slate-500">
+                    Respondió: <span className={`font-semibold ${r.correct ? "text-emerald-700" : "text-rose-600"}`}>{r.selected_option}</span>
+                    {!r.correct && r.correct_option && <> · Correcta: <span className="font-semibold text-emerald-700">{r.correct_option}</span></>}
+                  </p>
+                )}
+              </div>
             ))}
           </div>
         )}

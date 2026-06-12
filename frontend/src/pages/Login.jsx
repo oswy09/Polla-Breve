@@ -3,6 +3,7 @@ import { Link, useNavigate, Navigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { toast } from "sonner";
 import Footer from "../components/Footer";
+import { Eye, EyeOff } from "lucide-react";
 
 export default function Login() {
   const { user, login } = useAuth();
@@ -11,6 +12,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   if (user) return <Navigate to="/" replace />;
 
@@ -62,12 +64,22 @@ export default function Login() {
             </div>
             <div>
               <label className="label-eyebrow block mb-1.5">Contraseña</label>
-              <input
-                type="password" required value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="form-input" placeholder="••••••••"
-                data-testid="login-password-input"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"} required value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="form-input pr-10" placeholder="••••••••"
+                  data-testid="login-password-input"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(p => !p)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             {error && (
