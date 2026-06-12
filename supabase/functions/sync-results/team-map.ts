@@ -1,101 +1,123 @@
 /**
- * Mapeo de nombres de equipos: football-data.org → nombres en nuestra BD.
- *
- * football-data.org usa nombres en inglés. Nuestra BD usa los nombres como
- * los insertamos en el seed (mezcla español/inglés).
- *
- * Agrega aquí cualquier nombre que no matchee automáticamente.
+ * Mapeo de nombres de equipos: API externa → nombres exactos en nuestra BD.
+ * La BD usa nombres en inglés tal como fueron insertados en el seed.
  */
 export const TEAM_MAP: Record<string, string> = {
   // ── Hosts ──────────────────────────────────────────────
-  "United States":          "USA",
-  "USA":                    "USA",
-  "Canada":                 "Canadá",
-  "Mexico":                 "México",
+  "United States":                    "United States",
+  "USA":                              "United States",
+  "US":                               "United States",
+  "Canada":                           "Canada",
+  "Mexico":                           "Mexico",
+  "México":                           "Mexico",
 
   // ── CONMEBOL ───────────────────────────────────────────
-  "Argentina":              "Argentina",
-  "Brazil":                 "Brasil",
-  "Colombia":               "Colombia",
-  "Uruguay":                "Uruguay",
-  "Ecuador":                "Ecuador",
-  "Chile":                  "Chile",
-  "Venezuela":              "Venezuela",
-  "Paraguay":               "Paraguay",
-  "Bolivia":                "Bolivia",
-  "Peru":                   "Perú",
+  "Argentina":                        "Argentina",
+  "Brazil":                           "Brazil",
+  "Brasil":                           "Brazil",
+  "Colombia":                         "Colombia",
+  "Uruguay":                          "Uruguay",
+  "Ecuador":                          "Ecuador",
+  "Chile":                            "Chile",
+  "Venezuela":                        "Venezuela",
+  "Paraguay":                         "Paraguay",
+  "Bolivia":                          "Bolivia",
+  "Peru":                             "Peru",
+  "Perú":                             "Peru",
 
   // ── UEFA ───────────────────────────────────────────────
-  "France":                 "Francia",
-  "Spain":                  "España",
-  "England":                "Inglaterra",
-  "Germany":                "Alemania",
-  "Portugal":               "Portugal",
-  "Netherlands":            "Países Bajos",
-  "Belgium":                "Bélgica",
-  "Italy":                  "Italia",
-  "Croatia":                "Croacia",
-  "Switzerland":            "Suiza",
-  "Denmark":                "Dinamarca",
-  "Serbia":                 "Serbia",
-  "Poland":                 "Polonia",
-  "Austria":                "Austria",
-  "Turkey":                 "Turquía",
-  "Scotland":               "Escocia",
-  "Ukraine":                "Ucrania",
-  "Slovakia":               "Eslovenia",   // ajusta si es Slovakia vs Slovenia
-  "Slovenia":               "Eslovenia",
-  "Hungary":                "Hungría",
-  "Albania":                "Albania",
+  "France":                           "France",
+  "Spain":                            "Spain",
+  "España":                           "Spain",
+  "England":                          "England",
+  "Germany":                          "Germany",
+  "Alemania":                         "Germany",
+  "Portugal":                         "Portugal",
+  "Netherlands":                      "Netherlands",
+  "Holland":                          "Netherlands",
+  "Belgium":                          "Belgium",
+  "Italy":                            "Italy",
+  "Croatia":                          "Croatia",
+  "Switzerland":                      "Switzerland",
+  "Denmark":                          "Denmark",
+  "Serbia":                           "Serbia",
+  "Poland":                           "Poland",
+  "Austria":                          "Austria",
+  "Turkey":                           "Turkey",
+  "Scotland":                         "Scotland",
+  "Ukraine":                          "Ukraine",
+  "Slovakia":                         "Slovakia",
+  "Slovenia":                         "Slovenia",
+  "Hungary":                          "Hungary",
+  "Albania":                          "Albania",
+  "Norway":                           "Norway",
+  "Sweden":                           "Sweden",
+  "Czech Republic":                   "Czech Republic",
+  "Czechia":                          "Czech Republic",
+  "Bosnia and Herzegovina":           "Bosnia and Herzegovina",
+  "Bosnia & Herzegovina":             "Bosnia and Herzegovina",
 
   // ── CAF ────────────────────────────────────────────────
-  "Morocco":                "Marruecos",
-  "Senegal":                "Senegal",
-  "Nigeria":                "Nigeria",
-  "Ivory Coast":            "Costa de Marfil",
-  "Côte d'Ivoire":          "Costa de Marfil",
-  "Egypt":                  "Egipto",
-  "South Africa":           "Sudáfrica",
-  "Algeria":                "Argelia",
-  "Tunisia":                "Túnez",
-  "Cameroon":               "Camerún",
-  "Ghana":                  "Ghana",
+  "Morocco":                          "Morocco",
+  "Marruecos":                        "Morocco",
+  "Senegal":                          "Senegal",
+  "Nigeria":                          "Nigeria",
+  "Ivory Coast":                      "Ivory Coast",
+  "Côte d'Ivoire":                    "Ivory Coast",
+  "Cote d'Ivoire":                    "Ivory Coast",
+  "Egypt":                            "Egypt",
+  "South Africa":                     "South Africa",
+  "Algeria":                          "Algeria",
+  "Argelia":                          "Algeria",
+  "Tunisia":                          "Tunisia",
+  "Cameroon":                         "Cameroon",
+  "Ghana":                            "Ghana",
+  "Cape Verde":                       "Cape Verde",
+  "Cabo Verde":                       "Cape Verde",
+  "Democratic Republic of the Congo": "Democratic Republic of the Congo",
+  "DR Congo":                         "Democratic Republic of the Congo",
+  "Congo DR":                         "Democratic Republic of the Congo",
+  "Haiti":                            "Haiti",
 
   // ── AFC ────────────────────────────────────────────────
-  "Japan":                  "Japón",
-  "South Korea":            "Corea del Sur",
-  "Korea Republic":         "Corea del Sur",
-  "Australia":              "Australia",
-  "Iran":                   "Irán",
-  "Saudi Arabia":           "Arabia Saudita",
-  "Qatar":                  "Qatar",
-  "Iraq":                   "Irak",
-  "Jordan":                 "Jordania",
+  "Japan":                            "Japan",
+  "South Korea":                      "South Korea",
+  "Korea Republic":                   "South Korea",
+  "Korea, Republic of":               "South Korea",
+  "Australia":                        "Australia",
+  "Iran":                             "Iran",
+  "Saudi Arabia":                     "Saudi Arabia",
+  "Qatar":                            "Qatar",
+  "Iraq":                             "Iraq",
+  "Jordan":                           "Jordan",
+  "Uzbekistan":                       "Uzbekistan",
 
   // ── CONCACAF (no hosts) ────────────────────────────────
-  "Panama":                 "Panamá",
-  "Jamaica":                "Jamaica",
-  "Honduras":               "Honduras",
-  "Costa Rica":             "Costa Rica",
-  "El Salvador":            "El Salvador",
+  "Panama":                           "Panama",
+  "Jamaica":                          "Jamaica",
+  "Honduras":                         "Honduras",
+  "Costa Rica":                       "Costa Rica",
+  "El Salvador":                      "El Salvador",
+  "Curaçao":                          "Curaçao",
+  "Curacao":                          "Curaçao",
 
   // ── OFC ────────────────────────────────────────────────
-  "New Zealand":            "Nueva Zelanda",
+  "New Zealand":                      "New Zealand",
 };
 
 /**
- * Devuelve el nombre normalizado para nuestra BD.
- * Si no hay mapeo exacto, intenta coincidencia parcial.
- * Si sigue sin encontrar, devuelve el nombre original (para que el admin lo vea).
+ * Devuelve el nombre exacto como está en la BD.
+ * Si no hay mapeo exacto, intenta coincidencia parcial ignorando mayúsculas.
+ * Si sigue sin encontrar, devuelve el nombre original.
  */
 export function normalizeTeamName(apiName: string): string {
+  if (!apiName) return "";
   if (TEAM_MAP[apiName]) return TEAM_MAP[apiName];
 
-  // Coincidencia parcial (ignora mayúsculas)
-  const lower = apiName.toLowerCase();
+  const lower = apiName.toLowerCase().trim();
   for (const [key, val] of Object.entries(TEAM_MAP)) {
     if (key.toLowerCase() === lower) return val;
   }
 
-  return apiName; // fallback: usa el nombre de la API tal cual
+  return apiName;
 }
