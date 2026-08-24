@@ -1,20 +1,61 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, formatApiError, formatDate } from "../lib/api";
 import { toast } from "sonner";
-import { Check, Lock, Globe, RotateCcw } from "lucide-react";
+import { Check, Lock, Globe, RotateCcw, ChevronUp, ChevronDown, CalendarDays } from "lucide-react";
 import MundialBanner from "../components/ChampionsBanner";
 import usePolling from "../lib/usePolling";
 import useRealtimeMatches from "../lib/useRealtimeMatches";
+import { Calendar } from "../components/ui/calendar";
+import { Popover, PopoverTrigger, PopoverContent } from "../components/ui/popover";
 
 const PHASES = [
   { value: "all",   label: "Todos" },
   { value: "group", label: "Grupos" },
-  { value: "R32",   label: "Octavos" },
-  { value: "R16",   label: "Cuartos" },
-  { value: "QF",    label: "Semis" },
+  { value: "R32",   label: "16avos" },
+  { value: "R16",   label: "Octavos" },
+  { value: "QF",    label: "Cuartos" },
   { value: "SF",    label: "Semifinales" },
   { value: "F",     label: "Final" },
 ];
+
+function ScoreStepper({ value, onChange, disabled, testId }) {
+  const num = value === "" ? null : Number(value);
+  const step = (delta) => {
+    if (disabled) return;
+    const current = num ?? 0;
+    const next = Math.min(20, Math.max(0, current + delta));
+    onChange(String(next));
+  };
+  return (
+    <div className="relative inline-flex">
+      <input
+        type="number" min={0} max={20} value={value}
+        onChange={(e) => onChange(e.target.value)} disabled={disabled}
+        className="score-input pr-6" data-testid={testId}
+      />
+      <div className="absolute right-0.5 top-0.5 bottom-0.5 flex flex-col justify-center gap-0.5">
+        <button
+          type="button"
+          onClick={() => step(1)}
+          disabled={disabled}
+          className="w-5 h-1/2 flex items-center justify-center rounded-sm text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 disabled:opacity-0 transition-colors"
+          tabIndex={-1}
+        >
+          <ChevronUp className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => step(-1)}
+          disabled={disabled}
+          className="w-5 h-1/2 flex items-center justify-center rounded-sm text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 disabled:opacity-0 transition-colors"
+          tabIndex={-1}
+        >
+          <ChevronDown className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function MatchCard({ match, prediction, onSaved }) {
   const [home, setHome] = useState(prediction?.pred_home ?? "");
@@ -126,17 +167,9 @@ function MatchCard({ match, prediction, onSaved }) {
           <span className="label-eyebrow">Tu pronóstico</span>
         </div>
         <div className="flex items-center justify-center gap-3">
-          <input
-            type="number" min={0} max={20} value={home}
-            onChange={(e) => setHome(e.target.value)} disabled={disabled || busy}
-            className="score-input" data-testid={`score-home-${match.id}`}
-          />
+          <ScoreStepper value={home} onChange={setHome} disabled={disabled || busy} testId={`score-home-${match.id}`} />
           <span className="font-display font-bold text-slate-300 text-2xl">:</span>
-          <input
-            type="number" min={0} max={20} value={away}
-            onChange={(e) => setAway(e.target.value)} disabled={disabled || busy}
-            className="score-input" data-testid={`score-away-${match.id}`}
-          />
+          <ScoreStepper value={away} onChange={setAway} disabled={disabled || busy} testId={`score-away-${match.id}`} />
         </div>
 
         {finalized ? (
@@ -166,6 +199,17 @@ function MatchCard({ match, prediction, onSaved }) {
   );
 }
 
+// Clave YYYY-MM-DD de un objeto Date local (sin desfase de timezone)
+const dateKeyOf = (d) => {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+// Convierte una clave YYYY-MM-DD a un Date local a mediodía (evita saltos de día)
+const dateFromKey = (key) => new Date(`${key}T12:00:00`);
+
 export default function Dashboard() {
   const [matches, setMatches] = useState([]);
   const [predictions, setPredictions] = useState([]);
@@ -173,6 +217,7 @@ export default function Dashboard() {
   const [phase, setPhase] = useState("all");
   const [selectedDate, setSelectedDate] = useState("all");
   const [selectedGroup, setSelectedGroup] = useState("all");
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
 
   const load = async () => {
     try {
@@ -202,22 +247,27 @@ export default function Dashboard() {
     setPredictions((prev) => [...prev.filter((p) => p.match_id !== saved.match_id), saved]);
   };
 
+  // Clave de fecha YYYY-MM-DD en hora Colombia (UTC-5)
+  const colDateKey = (iso) => {
+    const d = new Date(new Date(iso).getTime() - 5 * 60 * 60 * 1000);
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
   // Extract unique dates chronologically
   const uniqueDates = useMemo(() => {
     const dateMap = {};
     for (const m of matches) {
       if (m.match_date) {
-        const d = new Date(m.match_date);
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        const key = `${yyyy}-${mm}-${dd}`;
-        
+        const key = colDateKey(m.match_date);
         if (!dateMap[key]) {
-          const label = d.toLocaleDateString("es-ES", {
+          const label = new Date(m.match_date).toLocaleDateString("es-ES", {
             weekday: "short",
             day: "numeric",
-            month: "short"
+            month: "short",
+            timeZone: "America/Bogota",
           });
           const capLabel = label.charAt(0).toUpperCase() + label.slice(1);
           dateMap[key] = capLabel;
@@ -228,25 +278,34 @@ export default function Dashboard() {
     return sortedKeys.map(key => ({ value: key, label: dateMap[key] }));
   }, [matches]);
 
+  const availableDateKeys = useMemo(
+    () => new Set(uniqueDates.map((d) => d.value)),
+    [uniqueDates]
+  );
+
   const filteredMatches = useMemo(() => {
-    return matches.filter((m) => {
+    const filtered = matches.filter((m) => {
       // Filter by phase
       if (phase !== "all" && m.phase !== phase) return false;
-      
+
       // Filter by group
       if (selectedGroup !== "all" && m.group_name !== selectedGroup) return false;
-      
+
       // Filter by date
       if (selectedDate !== "all") {
-        const d = new Date(m.match_date);
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        const matchDateKey = `${yyyy}-${mm}-${dd}`;
-        if (matchDateKey !== selectedDate) return false;
+        if (colDateKey(m.match_date) !== selectedDate) return false;
       }
-      
+
       return true;
+    });
+
+    // Orden: todo lo no finalizado primero (pendiente, cerrado, ya pronosticado), finalizados al final
+    const bucket = (m) => (m.status === "finalized" ? 1 : 0);
+
+    return [...filtered].sort((a, b) => {
+      const ba = bucket(a), bb = bucket(b);
+      if (ba !== bb) return ba - bb;
+      return new Date(a.match_date) - new Date(b.match_date);
     });
   }, [matches, phase, selectedGroup, selectedDate]);
 
@@ -314,19 +373,44 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Date Filter */}
+          {/* Date Filter (datepicker) */}
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-slate-500">Fecha:</span>
-            <select
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="text-xs font-semibold bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg px-3 py-1.5 outline-none focus:border-emerald-500 cursor-pointer transition-colors"
-            >
-              <option value="all">Todas las fechas</option>
-              {uniqueDates.map((d) => (
-                <option key={d.value} value={d.value}>{d.label}</option>
-              ))}
-            </select>
+            <Popover open={datePickerOpen} onOpenChange={setDatePickerOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg px-3 py-1.5 outline-none focus:border-emerald-500 cursor-pointer transition-colors"
+                >
+                  <CalendarDays className="w-3.5 h-3.5 text-emerald-600" />
+                  {selectedDate === "all"
+                    ? "Todas las fechas"
+                    : uniqueDates.find((d) => d.value === selectedDate)?.label || "Fecha"}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-2" align="start">
+                <button
+                  type="button"
+                  onClick={() => { setSelectedDate("all"); setDatePickerOpen(false); }}
+                  className={`w-full text-left text-xs font-semibold px-2.5 py-1.5 rounded-lg mb-1 transition-colors ${
+                    selectedDate === "all" ? "bg-emerald-50 text-emerald-700" : "text-slate-500 hover:bg-slate-100"
+                  }`}
+                >
+                  Todas las fechas
+                </button>
+                <Calendar
+                  mode="single"
+                  selected={selectedDate === "all" ? undefined : dateFromKey(selectedDate)}
+                  onSelect={(d) => {
+                    if (!d) return;
+                    setSelectedDate(dateKeyOf(d));
+                    setDatePickerOpen(false);
+                  }}
+                  disabled={(d) => !availableDateKeys.has(dateKeyOf(d))}
+                  defaultMonth={uniqueDates.length ? dateFromKey(uniqueDates[0].value) : undefined}
+                />
+              </PopoverContent>
+            </Popover>
           </div>
 
           {/* Reset button */}

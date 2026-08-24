@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modal de Predicciones Pendientes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100">
+    <div class="min-h-screen flex items-center justify-center p-4">
+        <!-- Modal Background -->
+        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-2xl shadow-xl max-w-md w-full animate-fade-up">
+                <!-- Header -->
+                <div class="px-6 pt-6 pb-4 border-b border-slate-200 flex items-start justify-between">
+                    <div class="flex items-start gap-3 flex-1">
+                        <div class="w-10 h-10 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0">
+                            <svg class="w-5 h-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <h2 class="font-bold text-lg text-slate-900">Predicciones pendientes</h2>
+                            <p class="text-xs text-slate-400 mt-0.5">Completa tus pronósticos del torneo</p>
+                        </div>
+                    </div>
+                    <button class="text-slate-400 hover:text-slate-600 transition-colors">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- Content -->
+                <div class="px-6 py-5 space-y-4">
+                    <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                        <p class="text-sm font-semibold text-emerald-900 mb-2">
+                            ⏰ Plazo límite: Mañana 24 de junio
+                        </p>
+                        <p class="text-xs text-emerald-700">
+                            Tienes hasta mañana a las 24:00 para completar tus predicciones sobre:
+                        </p>
+                    </div>
+
+                    <div class="space-y-2">
+                        <div class="flex items-start gap-2 text-sm">
+                            <span class="text-emerald-600 font-bold mt-0.5">•</span>
+                            <span class="text-slate-700"><strong>Campeón</strong> del Mundial</span>
+                        </div>
+                        <div class="flex items-start gap-2 text-sm">
+                            <span class="text-emerald-600 font-bold mt-0.5">•</span>
+                            <span class="text-slate-700"><strong>Subcampeón</strong> del Mundial</span>
+                        </div>
+                        <div class="flex items-start gap-2 text-sm">
+                            <span class="text-emerald-600 font-bold mt-0.5">•</span>
+                            <span class="text-slate-700"><strong>Goleador</strong> del torneo</span>
+                        </div>
+                        <div class="flex items-start gap-2 text-sm">
+                            <span class="text-emerald-600 font-bold mt-0.5">•</span>
+                            <span class="text-slate-700"><strong>Mejor jugador</strong> del torneo</span>
+                        </div>
+                        <div class="flex items-start gap-2 text-sm">
+                            <span class="text-emerald-600 font-bold mt-0.5">•</span>
+                            <span class="text-slate-700"><strong>Mejor arquero</strong> del torneo</span>
+                        </div>
+                    </div>
+
+                    <p class="text-xs text-slate-500 italic">
+                        Una vez completados, podrás acceder a ellos desde esta sección y los puntos se calcularán automáticamente al finalizar el torneo.
+                    </p>
+                </div>
+
+                <!-- Footer -->
+                <div class="px-6 pb-6 pt-4 border-t border-slate-200 flex gap-3">
+                    <button class="flex-1 px-4 py-2.5 rounded-lg border border-slate-200 text-slate-700 font-semibold text-sm hover:bg-slate-50 transition-colors">
+                        Después
+                    </button>
+                    <button class="flex-1 px-4 py-2.5 rounded-lg bg-emerald-600 text-white font-semibold text-sm hover:bg-emerald-700 transition-colors flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                        </svg>
+                        Ir a Bonus
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contenido de fondo (simulado) -->
+        <div class="text-center text-slate-500">
+            <p>Este es el modal que verán los usuarios cuando falten predicciones por completar</p>
+        </div>
+    </div>
+
+    <style>
+        @keyframes fade-up {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .animate-fade-up {
+            animation: fade-up 0.3s ease-out;
+        }
+    </style>
+</body>
+</html>

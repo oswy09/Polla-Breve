@@ -6,6 +6,8 @@ import { Toaster } from "sonner";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import Protected from "@/components/Protected";
+import BonusRequiredModal from "@/components/BonusRequiredModal";
+import MotivationModal from "@/components/MotivationModal";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import Dashboard from "@/pages/Dashboard";
@@ -18,6 +20,8 @@ import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
 import Reglas from "@/pages/Reglas";
 import Marketplace from "@/pages/Marketplace";
+import UserProfile from "@/pages/UserProfile";
+import Estadisticas from "@/pages/Estadisticas";
 
 function Shell({ children }) {
   return (
@@ -42,6 +46,8 @@ function App() {
             richColors
             toastOptions={{ className: "font-body" }}
           />
+          <BonusRequiredModal />
+          <MotivationModal />
           <Routes>
             <Route path="/login"           element={<Login />} />
             <Route path="/register"        element={<Register />} />
@@ -70,6 +76,12 @@ function App() {
             />
             <Route path="/admin"
               element={<Protected adminOnly allowLocalPreview><Shell><Admin /></Shell></Protected>}
+            />
+            <Route path="/perfil/:userId"
+              element={<Protected allowLocalPreview><Shell><UserProfile /></Shell></Protected>}
+            />
+            <Route path="/estadisticas"
+              element={<Protected allowLocalPreview><Shell><Estadisticas /></Shell></Protected>}
             />
           </Routes>
         </BrowserRouter>

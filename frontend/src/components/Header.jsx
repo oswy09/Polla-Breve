@@ -1,9 +1,12 @@
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { getInitials } from "../lib/api";
-import { Trophy, ShieldCheck, LogOut, LayoutGrid, ListChecks, Users, MessageSquareMore, Star, BookOpen, ShoppingBag, ChevronDown } from "lucide-react";
+import { Trophy, ShieldCheck, LogOut, LayoutGrid, ListChecks, Users, MessageSquareMore, Star, BookOpen, ShoppingBag, ChevronDown, BarChart2, Bell, BellRing } from "lucide-react";
 import { useLive } from "../lib/live";
 import { useState, useRef, useEffect } from "react";
+import { getPushPermissionState, subscribeToPush, isIos, isStandalone } from "../lib/push";
+import { toast } from "sonner";
+import IosInstallModal from "./IosInstallModal";
 
 const LOGO = "https://res.cloudinary.com/ddqbnr9vo/image/upload/v1780536995/logo_white_lxc6na.png";
 
@@ -13,6 +16,35 @@ export default function Header() {
   const navigate = useNavigate();
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef(null);
+  const [pushState, setPushState] = useState("default"); // "default" | "granted" | "denied" | "unsupported"
+  const [showIosHint, setShowIosHint] = useState(false);
+  const iosNeedsInstall = isIos() && !isStandalone();
+
+  useEffect(() => {
+    if (!user) return;
+    if (iosNeedsInstall) {
+      setPushState("default"); // mostramos la campana igual, para guiar a instalar
+      return;
+    }
+    getPushPermissionState().then(setPushState);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  const handleEnablePush = async () => {
+    if (iosNeedsInstall) {
+      setShowIosHint(true);
+      return;
+    }
+    if (pushState === "granted") return;
+    try {
+      await subscribeToPush(user.id);
+      setPushState("granted");
+      toast.success("¡Notificaciones activadas!");
+    } catch (err) {
+      setPushState(Notification.permission);
+      toast.error(err.message || "No se pudieron activar las notificaciones");
+    }
+  };
 
   const isLocalAdminPreview =
     typeof window !== "undefined" &&
@@ -47,6 +79,7 @@ export default function Header() {
     }`;
 
   return (
+    <>
     <header className="glass sticky top-0 z-40">
       <div className="max-w-6xl mx-auto px-4 py-2 flex items-center justify-between gap-3">
 
@@ -85,6 +118,9 @@ export default function Header() {
               </button>
               {moreOpen && (
                 <div className="absolute top-full left-0 mt-1 w-44 bg-white border border-slate-200 rounded-xl shadow-lg p-1.5 z-50">
+                  <NavLink to={withPreview("/estadisticas")} className={({ isActive }) => dropLinkClass(isActive)} onClick={() => setMoreOpen(false)}>
+                    <BarChart2 className="w-4 h-4" /> Estadísticas
+                  </NavLink>
                   <NavLink to={withPreview("/reglas")} className={({ isActive }) => dropLinkClass(isActive)} onClick={() => setMoreOpen(false)}>
                     <BookOpen className="w-4 h-4" /> Reglas
                   </NavLink>
@@ -109,6 +145,19 @@ export default function Header() {
         <div className="flex items-center gap-2 shrink-0">
           {effectiveUser ? (
             <>
+              {user && (iosNeedsInstall || (pushState !== "unsupported" && pushState !== "denied")) && (
+                <button
+                  onClick={handleEnablePush}
+                  title={pushState === "granted" ? "Notificaciones activadas" : "Activar notificaciones"}
+                  className={`p-2 rounded-lg border transition-colors ${
+                    pushState === "granted"
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-600"
+                      : "bg-slate-50 border-slate-200 text-slate-400 hover:text-emerald-600 hover:border-emerald-300"
+                  }`}
+                >
+                  {pushState === "granted" ? <BellRing className="w-4 h-4" /> : <Bell className="w-4 h-4" />}
+                </button>
+              )}
               <div className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold">
                 <Users className="w-3.5 h-3.5" />
                 {user ? (
@@ -120,17 +169,30 @@ export default function Header() {
                   "Preview"
                 )}
               </div>
-              <div className="flex items-center gap-2" data-testid="user-info">
-                <div className="w-8 h-8 rounded-full bg-emerald-600 text-white font-display font-bold flex items-center justify-center text-sm shadow-sm" data-testid="user-avatar">
-                  {getInitials(effectiveUser.name)}
-                </div>
+              <Link
+                to={user ? `/perfil/${user.id}` : "#"}
+                className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+                data-testid="user-info"
+              >
+                {effectiveUser.avatar_url ? (
+                  <img
+                    src={effectiveUser.avatar_url}
+                    alt={effectiveUser.name}
+                    className="w-8 h-8 rounded-full object-cover shadow-sm border border-slate-200"
+                    data-testid="user-avatar"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-full bg-emerald-600 text-white font-display font-bold flex items-center justify-center text-sm shadow-sm" data-testid="user-avatar">
+                    {getInitials(effectiveUser.name)}
+                  </div>
+                )}
                 <div className="hidden lg:flex flex-col leading-tight">
                   <span className="text-sm font-semibold text-slate-800" data-testid="user-name">{effectiveUser.name}</span>
                   <span className="text-[10px] uppercase tracking-[0.15em] text-slate-400">
                     {isLocalAdminPreview && !user ? "Admin preview" : isAdmin ? "Admin" : "Jugador"}
                   </span>
                 </div>
-              </div>
+              </Link>
               {user && (
                 <button onClick={handleLogout} className="btn-ghost flex items-center gap-1.5 text-sm py-1.5 px-3" data-testid="logout-button">
                   <LogOut className="w-3.5 h-3.5" /> Salir
@@ -152,6 +214,7 @@ export default function Header() {
           <NavLink to={withPreview("/resultados")} className={linkClass}><ListChecks className="w-4 h-4" /> Resultados</NavLink>
           <NavLink to={withPreview("/ranking")} className={linkClass}><Trophy className="w-4 h-4" /> Ranking</NavLink>
           <NavLink to={withPreview("/bonus")} className={linkClass}><Star className="w-4 h-4" /> Bonus</NavLink>
+          <NavLink to={withPreview("/estadisticas")} className={linkClass}><BarChart2 className="w-4 h-4" /> Estadísticas</NavLink>
           <NavLink to={withPreview("/chat")} className={linkClass}><MessageSquareMore className="w-4 h-4" /> Chat</NavLink>
           <NavLink to={withPreview("/reglas")} className={linkClass}><BookOpen className="w-4 h-4" /> Reglas</NavLink>
           <NavLink to={withPreview("/marketplace")} className={linkClass}><ShoppingBag className="w-4 h-4" /> Marketplace</NavLink>
@@ -161,5 +224,7 @@ export default function Header() {
         </nav>
       )}
     </header>
+    {showIosHint && <IosInstallModal onClose={() => setShowIosHint(false)} />}
+    </>
   );
 }

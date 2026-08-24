@@ -27,7 +27,7 @@ async function loadProfile() {
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("id, name, email, role, paid, active")
+    .select("id, name, email, role, paid, active, avatar_url")
     .eq("id", authUser.id)
     .maybeSingle();
 
@@ -40,6 +40,7 @@ async function loadProfile() {
     email: profile.email || authUser.email,
     role: profile.role || "user",
     paid: Boolean(profile.paid),
+    avatar_url: profile.avatar_url || null,
   };
 }
 

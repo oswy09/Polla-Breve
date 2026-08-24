@@ -1,7 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api, getInitials, formatDate } from "../lib/api";
 import { useAuth } from "../lib/auth";
-import { Trophy, Medal, X, Star, Award, Shield, User, Calendar, Sparkles, ChevronDown } from "lucide-react";
+import { useNavigate, Link } from "react-router-dom";
+import { Trophy, Medal, X, Star, Award, Shield, User, Calendar, Sparkles, ChevronDown, List, Mountain } from "lucide-react";
+
+const BURRO_IMG = "https://res.cloudinary.com/ddqbnr9vo/image/upload/v1782243425/burroo-removebg-preview_vtdy1k.png";
 import usePolling from "../lib/usePolling";
 import useRealtimeMatches from "../lib/useRealtimeMatches";
 
@@ -27,12 +30,13 @@ function PointsBadge({ pts }) {
   );
 }
 
-function UserTransparencyModal({ user, onClose }) {
+function UserTransparencyModal({ user, onClose, onRefreshPoints }) {
   const [tab, setTab] = useState("predictions"); // "predictions" | "bonus" | "trivia"
   const [predictions, setPredictions] = useState([]);
   const [bonuses, setBonuses] = useState([]);
   const [trivias, setTrivias] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [livePoints, setLivePoints] = useState(user?.points ?? 0);
 
   useEffect(() => {
     if (!user) return;
@@ -40,12 +44,19 @@ function UserTransparencyModal({ user, onClose }) {
     Promise.all([
       api.get(`/users/${user.user_id}/predictions`),
       api.get(`/users/${user.user_id}/bonus`),
-      api.get(`/users/${user.user_id}/trivia`)
+      api.get(`/users/${user.user_id}/trivia`),
+      api.get("/ranking"),
     ])
-      .then(([{ data: pData }, { data: bData }, { data: tData }]) => {
+      .then(([{ data: pData }, { data: bData }, { data: tData }, { data: rankData }]) => {
         setPredictions(pData || []);
         setBonuses(bData || []);
         setTrivias(tData || []);
+        // Actualiza puntos en vivo desde ranking fresco
+        const found = (rankData || []).find(r => r.user_id === user.user_id);
+        if (found) {
+          setLivePoints(found.points);
+          if (onRefreshPoints) onRefreshPoints(rankData);
+        }
       })
       .catch((err) => {
         console.error("Error loading user transparency data", err);
@@ -77,20 +88,33 @@ function UserTransparencyModal({ user, onClose }) {
         {/* Header */}
         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2 bg-gradient-to-r from-emerald-50/50 to-white shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-full bg-emerald-600 text-white font-display font-bold flex items-center justify-center text-sm sm:text-base shadow-sm shrink-0">
-              {getInitials(user.name)}
-            </div>
+            {user.avatar_url ? (
+              <img src={user.avatar_url} alt={user.name} className="w-9 h-9 sm:w-12 sm:h-12 rounded-full object-cover shadow-sm shrink-0 border border-slate-200" />
+            ) : (
+              <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-full bg-emerald-600 text-white font-display font-bold flex items-center justify-center text-sm sm:text-base shadow-sm shrink-0">
+                {getInitials(user.name)}
+              </div>
+            )}
             <div className="min-w-0">
-              <h2 className="font-display font-black text-base sm:text-xl text-slate-800 tracking-tight truncate">
-                {user.name}
-              </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="font-display font-black text-base sm:text-xl text-slate-800 tracking-tight truncate">
+                  {user.name}
+                </h2>
+                <Link
+                  to={`/perfil/${user.user_id}`}
+                  onClick={onClose}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 transition-colors whitespace-nowrap"
+                >
+                  Ver perfil →
+                </Link>
+              </div>
               <p className="text-[11px] text-slate-400">Picks del participante</p>
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <div className="card-surface px-2.5 py-1 flex items-center gap-1 bg-emerald-50 border-emerald-100">
               <Trophy className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="font-display font-black text-emerald-600 text-sm sm:text-base">{user.points}</span>
+              <span className="font-display font-black text-emerald-600 text-sm sm:text-base">{livePoints}</span>
               <span className="text-[10px] text-emerald-700 font-bold">pts</span>
             </div>
             <button
@@ -332,13 +356,297 @@ function UserTransparencyModal({ user, onClose }) {
   );
 }
 
+// ── Confeti simple con CSS + Jugador Destacado ───────────────────────────────
+const CONFETTI_COLORS = ["#10b981","#f59e0b","#3b82f6","#f43f5e","#a855f7","#06b6d4"];
+
+function HeroDestacado({ hero }) {
+  const [show, setShow] = useState(false);
+  const [pieces, setPieces] = useState([]);
+
+  useEffect(() => {
+    // Genera confeti al montar
+    const arr = Array.from({ length: 32 }, (_, i) => ({
+      id: i,
+      x: Math.random() * 100,
+      delay: Math.random() * 1.2,
+      dur: 1.8 + Math.random() * 1.2,
+      color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+      size: 6 + Math.random() * 6,
+      rotate: Math.random() * 360,
+    }));
+    setPieces(arr);
+    const t = setTimeout(() => setShow(true), 100);
+    return () => clearTimeout(t);
+  }, [hero.user.id]);
+
+  return (
+    <div className={`fixed bottom-0 left-0 right-0 z-40 transition-transform duration-500 ${show ? "translate-y-0" : "translate-y-full"}`}>
+      {/* Confeti */}
+      <div className="absolute inset-x-0 bottom-full h-32 pointer-events-none overflow-hidden">
+        {pieces.map(p => (
+          <div
+            key={p.id}
+            className="absolute bottom-0 animate-confetti"
+            style={{
+              left: `${p.x}%`,
+              width: p.size,
+              height: p.size,
+              backgroundColor: p.color,
+              borderRadius: p.id % 3 === 0 ? "50%" : "2px",
+              transform: `rotate(${p.rotate}deg)`,
+              animationDelay: `${p.delay}s`,
+              animationDuration: `${p.dur}s`,
+            }}
+          />
+        ))}
+      </div>
+
+      {/* Card destacado */}
+      <div className="bg-slate-900 border-t border-slate-700 shadow-[0_-8px_40px_rgba(0,0,0,0.3)]">
+        <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center shrink-0">
+            <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="text-[9px] font-bold uppercase tracking-[0.2em] text-slate-500 mb-0.5">
+              Jugador destacado
+            </div>
+            <div className="font-display font-black text-white text-sm leading-tight truncate">
+              {hero.user.name}
+            </div>
+          </div>
+
+          <div className="shrink-0 text-right">
+            <div className="font-display font-black text-emerald-400 text-xl leading-none">
+              {hero.points}
+              <span className="text-[11px] font-bold text-emerald-600 ml-1">pts</span>
+            </div>
+            <div className="text-[9px] text-slate-600 mt-0.5">{hero.dateLabel}</div>
+          </div>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes confetti-fall {
+          0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(-120px) rotate(720deg); opacity: 0; }
+        }
+        .animate-confetti {
+          animation: confetti-fall linear forwards;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ── Vista "Montaña" — escalando hacia la cima, tipo gráfica de trading ──────
+
+const MOUNTAIN_ZONES = [
+  { from: 0.75, to: 1,    label: "Zona Cima",     desc: "Para los cracks 🏆",        color: "text-emerald-700" },
+  { from: 0.5,  to: 0.75, label: "Zona Despegue", desc: "Ya casi llegan 🚀",         color: "text-teal-600" },
+  { from: 0.25, to: 0.5,  label: "Zona Tibia",    desc: "Ni fu ni fa 😐",            color: "text-amber-600" },
+  { from: 0,    to: 0.25, label: "Zona Arranque", desc: "Recién calentando motores 🐴", color: "text-rose-500" },
+];
+
+function MountainChip({ r, x, y, isMe, isLast, trend, onSelect }) {
+  return (
+    <button
+      onClick={() => onSelect(r)}
+      title={`${r.name} · ${r.points} pts`}
+      className="absolute -translate-x-1/2 transition-[bottom,left] duration-[1100ms] ease-in-out z-10 hover:z-20"
+      style={{ left: `${x}%`, bottom: `${y}%` }}
+    >
+      <span
+        className="block animate-floaty"
+        style={{ animationDelay: `${(x % 30) / 10}s`, animationDuration: `${3 + (x % 20) / 10}s` }}
+      >
+        <span
+          className={`relative flex items-center gap-1 pl-2 pr-1.5 py-0.5 rounded-full bg-white border shadow-sm hover:scale-110 hover:shadow-md active:scale-95 transition-transform whitespace-nowrap
+            ${isMe ? "border-emerald-400 ring-2 ring-emerald-200" : trend === "up" ? "border-emerald-300" : trend === "down" ? "border-rose-300" : "border-slate-200"}`}
+        >
+          {trend === "up" && <span className="text-emerald-500 text-[9px] shrink-0">▲</span>}
+          {trend === "down" && <span className="text-rose-500 text-[9px] shrink-0">▼</span>}
+          <span className="text-[10px] font-bold text-slate-700 max-w-[78px] truncate">{r.name}</span>
+          {isLast && (
+            <img src={BURRO_IMG} alt="" className="absolute -bottom-2.5 -right-2.5 w-5 h-5 object-contain" />
+          )}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function MountainView({ rows, user, onSelect }) {
+  const prevPointsRef = useRef(new Map());
+  const [trends, setTrends] = useState(new Map());
+
+  useEffect(() => {
+    if (rows.length === 0) return;
+    const newTrends = new Map();
+    for (const r of rows) {
+      const prev = prevPointsRef.current.get(r.user_id);
+      if (prev != null && r.points !== prev) {
+        newTrends.set(r.user_id, r.points > prev ? "up" : "down");
+      }
+    }
+    prevPointsRef.current = new Map(rows.map((r) => [r.user_id, r.points]));
+    if (newTrends.size > 0) {
+      setTrends(newTrends);
+      const t = setTimeout(() => setTrends(new Map()), 8000);
+      return () => clearTimeout(t);
+    }
+  }, [rows]);
+
+  if (rows.length === 0) return null;
+
+  // Orden ascendente por puntos: índice 0 = último lugar, último índice = líder
+  const sorted = [...rows].sort((a, b) => (a.points || 0) - (b.points || 0));
+  const minPts = sorted[0].points || 0;
+  const maxPts = sorted[sorted.length - 1].points || 0;
+  const span = maxPts - minPts;
+  // Si todos van casi igual (ej. arranque del torneo), usamos un rango fijo
+  // amable en vez de un span ~0 que generaría valores negativos/duplicados.
+  const axisMin = span < 2 ? Math.max(0, minPts - 1) : Math.max(0, minPts - span * 0.15);
+  const axisMax = span < 2 ? maxPts + 3 : maxPts + span * 0.15;
+  const axisSpan = Math.max(axisMax - axisMin, 1);
+
+  // Líneas de referencia: mínimo, máximo y pasos intermedios (sin duplicados)
+  const gridValues = [...new Set(
+    [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round((axisMin + f * axisSpan) * 10) / 10)
+  )];
+
+  const lastUserId = sorted.length > 1 ? sorted[0].user_id : null;
+  const pad = 6; // % de margen horizontal
+
+  // Posiciona por altura real (puntos) y agrupa a quienes quedan muy cerca
+  // en altura para repartirlos a lo ancho de TODA la pantalla (no en diagonal),
+  // usando varias filas internas si hay muchos empatados en la misma banda.
+  const withY = sorted.map((r) => ({
+    ...r,
+    baseY: Math.min(95, (((r.points || 0) - axisMin) / axisSpan) * 100),
+  }));
+
+  const bandThreshold = 5; // % de altura para considerarlos "a la misma altura"
+  const bands = [];
+  let currentBand = [];
+  for (const item of withY) {
+    const last = currentBand[currentBand.length - 1];
+    if (!last || item.baseY - last.baseY <= bandThreshold) {
+      currentBand.push(item);
+    } else {
+      bands.push(currentBand);
+      currentBand = [item];
+    }
+  }
+  if (currentBand.length) bands.push(currentBand);
+
+  const maxPerRow = 7;
+  const rowGap = 4.5; // % de separación vertical entre sub-filas de una misma banda
+  const positioned = [];
+  for (const band of bands) {
+    const bandSorted = [...band].sort((a, b) => a.user_id.localeCompare(b.user_id));
+    const subRows = Math.ceil(bandSorted.length / maxPerRow);
+    for (let ri = 0; ri < subRows; ri++) {
+      const rowItems = bandSorted.slice(ri * maxPerRow, (ri + 1) * maxPerRow);
+      const n = rowItems.length;
+      rowItems.forEach((item, idx) => {
+        const x = n > 1 ? pad + ((idx + 0.5) / n) * (100 - 2 * pad) : 50;
+        const y = Math.min(97, item.baseY + ri * rowGap);
+        positioned.push({ ...item, x, y });
+      });
+    }
+  }
+
+  return (
+    <div className="card-surface p-4 sm:p-6 animate-fade-up">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-lg">⛰️</span>
+        <h3 className="font-display font-black text-sm text-slate-700">Subiendo la montaña</h3>
+      </div>
+      <p className="text-[11px] text-slate-400 mb-5">
+        De último a líder — la altura es el puntaje real de cada uno, ▲▼ muestra si subió o bajó en la última actualización
+      </p>
+
+      <div className="relative ml-7" style={{ height: 620 }}>
+        {/* Silueta de montaña de fondo */}
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none">
+          <defs>
+            <linearGradient id="mtnFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#a7f3d0" stopOpacity="0.55" />
+              <stop offset="55%" stopColor="#f8fafc" stopOpacity="0.3" />
+              <stop offset="100%" stopColor="#ffe4e6" stopOpacity="0.45" />
+            </linearGradient>
+          </defs>
+          <polygon points="-5,100 30,38 50,8 70,38 105,100" fill="url(#mtnFill)" />
+        </svg>
+
+        {/* Líneas de cuadrícula con valores del eje */}
+        {gridValues.map((v, idx) => (
+          <div
+            key={idx}
+            className="absolute left-0 right-0 border-t border-dashed border-slate-200"
+            style={{ bottom: `${((v - axisMin) / axisSpan) * 100}%` }}
+          >
+            <span className="absolute -top-2 -left-7 text-[9px] font-bold text-slate-400 w-6 text-right">{v}</span>
+          </div>
+        ))}
+
+        {/* Etiquetas de zona, divertidas, una por cuarto de altura */}
+        {MOUNTAIN_ZONES.map((z) => (
+          <div
+            key={z.label}
+            className="absolute right-2 text-right pointer-events-none z-0"
+            style={{ bottom: `${((z.from + z.to) / 2) * 100}%`, transform: "translateY(50%)" }}
+          >
+            <div className={`text-[10px] font-black uppercase tracking-wide ${z.color} opacity-60`}>{z.label}</div>
+            <div className="text-[9px] text-slate-400 opacity-80">{z.desc}</div>
+          </div>
+        ))}
+
+        {/* Bolsa de premios en la cima */}
+        <div className="absolute left-1/2 -translate-x-1/2 text-2xl select-none" style={{ bottom: "97%" }}>💰</div>
+
+        {/* Jugadores flotando a la altura real de sus puntos, repartidos por todo el ancho */}
+        {positioned.map((r) => {
+          return (
+            <MountainChip
+              key={r.user_id}
+              r={r}
+              x={r.x}
+              y={r.y}
+              isMe={user && r.user_id === user.id}
+              isLast={r.user_id === lastUserId}
+              trend={trends.get(r.user_id)}
+              onSelect={onSelect}
+            />
+          );
+        })}
+      </div>
+
+      <style>{`
+        @keyframes floaty {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-6px); }
+        }
+        .animate-floaty {
+          animation-name: floaty;
+          animation-timing-function: ease-in-out;
+          animation-iteration-count: infinite;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 export default function Ranking() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState(null);
   const [dailyHero, setDailyHero] = useState(null);
-  const [isOpen, setIsOpen] = useState(false);
+  const [viewMode, setViewMode] = useState("lista"); // "lista" | "zonas"
 
   const loadRanking = async () => {
     try {
@@ -408,8 +716,26 @@ export default function Ranking() {
         </p>
       </div>
 
-      {myPosition > 10 && (
-        <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <div className="inline-flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+          <button
+            onClick={() => setViewMode("lista")}
+            className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${
+              viewMode === "lista" ? "bg-white text-slate-800 shadow-sm" : "text-slate-400 hover:text-slate-600"
+            }`}
+          >
+            <List className="w-3.5 h-3.5" /> Lista
+          </button>
+          <button
+            onClick={() => setViewMode("montana")}
+            className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${
+              viewMode === "montana" ? "bg-white text-slate-800 shadow-sm" : "text-slate-400 hover:text-slate-600"
+            }`}
+          >
+            <Mountain className="w-3.5 h-3.5" /> Montaña
+          </button>
+        </div>
+        {viewMode === "lista" && myPosition > 10 && (
           <button
             onClick={scrollToMyPosition}
             className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs py-2 px-3.5 rounded-lg border border-emerald-200 hover:border-emerald-300 transition-colors flex items-center gap-1.5 shadow-sm active:scale-95 duration-150"
@@ -417,9 +743,14 @@ export default function Ranking() {
             <ChevronDown className="w-3.5 h-3.5 animate-bounce" />
             Ir a mi posición (#{myPosition})
           </button>
-        </div>
+        )}
+      </div>
+
+      {viewMode === "montana" && !loading && rows.length > 0 && (
+        <MountainView rows={rows} user={user} onSelect={setSelectedUser} />
       )}
 
+      {viewMode === "lista" && (
       <div className="card-surface overflow-hidden">
         <div className="flex px-4 py-3 text-[11px] uppercase tracking-[0.15em] font-bold text-slate-400 border-b border-slate-100">
           <div className="w-8">#</div>
@@ -438,6 +769,7 @@ export default function Ranking() {
         ) : (
           rows.map((r, i) => {
             const isMe = user && r.user_id === user.id;
+            const isLast = i === rows.length - 1 && rows.length > 1;
             return (
               <div
                 key={r.user_id}
@@ -458,16 +790,31 @@ export default function Ranking() {
                   )}
                 </div>
                 <div className="flex-1 flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-full bg-emerald-600 text-white font-display font-bold flex items-center justify-center text-xs shrink-0">
-                    {getInitials(r.name)}
+                  <div className="relative shrink-0">
+                    {r.avatar_url ? (
+                      <img src={r.avatar_url} alt={r.name} className="w-8 h-8 rounded-full object-cover shrink-0 border border-slate-200" />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-emerald-600 text-white font-display font-bold flex items-center justify-center text-xs shrink-0">
+                        {getInitials(r.name)}
+                      </div>
+                    )}
+                    {isLast && (
+                      <img src={BURRO_IMG} alt="Último lugar" title="Último lugar" className="absolute -bottom-3 -right-3 w-9 h-9 object-contain drop-shadow-md" />
+                    )}
                   </div>
                   <div className="min-w-0">
                     <div className="font-semibold truncate text-slate-800 text-sm">
                       {r.name}
                       {isMe && <span className="text-emerald-600 text-xs ml-1 font-normal">(tú)</span>}
+                      {isLast && <img src={BURRO_IMG} alt="" className="inline-block w-7 h-7 object-contain align-middle ml-1.5" />}
                     </div>
-                    <div className="sm:hidden text-[10px] text-slate-400 mt-0.5">
-                      {r.exactos} exactos · {r.ganadores} ganador
+                    <div className="text-[10px] text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                      <span className="sm:hidden">{r.exactos} exactos · {r.ganadores} ganador</span>
+                      {r.bonus_pts > 0 && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 font-bold text-[9px] shrink-0">
+                          🏆 +{r.bonus_pts} bonus
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -482,6 +829,7 @@ export default function Ranking() {
           })
         )}
       </div>
+      )}
 
       <div className="mt-4 text-xs text-slate-400">
         <span className="font-semibold text-slate-500">Reglas:</span>{" "}
@@ -489,136 +837,14 @@ export default function Ranking() {
       </div>
 
       {selectedUser && (
-        <UserTransparencyModal 
-          user={selectedUser} 
-          onClose={() => setSelectedUser(null)} 
+        <UserTransparencyModal
+          user={selectedUser}
+          onClose={() => setSelectedUser(null)}
+          onRefreshPoints={(rankData) => setRows(rankData)}
         />
       )}
 
-      {dailyHero && (
-        <div 
-          className={`fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 shadow-[0_-8px_30px_rgba(0,0,0,0.12)] rounded-t-2xl transition-all duration-300 ease-in-out ${
-            isOpen ? "max-h-[80vh] h-[500px]" : "h-16"
-          } font-sans`}
-        >
-          <div className="max-w-md mx-auto h-full flex flex-col px-4">
-            <div 
-              onClick={() => setIsOpen(!isOpen)}
-              className="py-2.5 flex flex-col items-center cursor-pointer select-none"
-            >
-              <div className="w-12 h-1.5 bg-slate-200 rounded-full hover:bg-slate-300 transition-colors mb-1.5" />
-              
-              {!isOpen && (
-                <div className="w-full flex items-center justify-between">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Sparkles className="w-4.5 h-4.5 text-amber-500 animate-pulse shrink-0" />
-                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                      {dailyHero.dateLabel === "hoy" ? "Jugador de hoy" : "Mejor jugador de ayer"}:
-                    </span>
-                    <span className="text-sm font-black text-slate-800 truncate">
-                      {dailyHero.user.name}
-                    </span>
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <span className="font-display font-black text-emerald-600 text-sm shrink-0">
-                      +{dailyHero.points} pts
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-bold bg-slate-100 border border-slate-200/60 rounded-full px-2 py-0.5">
-                      Ver picks
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {isOpen && (
-              <div className="flex-1 flex flex-col min-h-0 pb-4">
-                <div className="flex items-start justify-between border-b border-slate-100 pb-3 mb-3 shrink-0">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-10 h-10 rounded-full bg-emerald-600 text-white font-display font-bold flex items-center justify-center text-sm shadow-sm">
-                      {getInitials(dailyHero.user.name)}
-                    </div>
-                    <div>
-                      <h3 className="font-display font-black text-slate-800 text-base leading-tight">
-                        {dailyHero.user.name}
-                      </h3>
-                      <p className="text-[11px] text-slate-500 font-medium mt-0.5">
-                        {dailyHero.dateLabel === "hoy" ? "Destacado de hoy" : "Mejor jugador de ayer"} ({dailyHero.dateStr})
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="card-surface px-2.5 py-1 flex items-center gap-1 bg-emerald-50 border-emerald-100">
-                      <Trophy className="w-3.5 h-3.5 text-emerald-500" />
-                      <span className="font-display font-black text-emerald-600 text-sm">+{dailyHero.points}</span>
-                      <span className="text-[9px] text-emerald-700 font-bold">pts</span>
-                    </div>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); setIsOpen(false); }}
-                      className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-400 hover:text-slate-600 transition"
-                      aria-label="Cerrar"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex-1 overflow-y-auto pr-0.5 space-y-2.5">
-                  <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">
-                    Pronósticos de la jornada
-                  </span>
-                  {dailyHero.predictions.map((p) => {
-                    const m = p.match;
-                    const hasPred = p.prediction != null;
-                    const isFinalized = m.status === "finalized";
-                    return (
-                      <div 
-                        key={m.id} 
-                        className="p-3 bg-slate-50/70 rounded-xl border border-slate-200/50 flex items-center justify-between gap-3"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[9px] font-bold text-slate-400 tracking-wider">
-                            {m.ronda || ""}
-                          </div>
-                          <div className="flex items-center gap-1.5 mt-0.5 text-xs font-semibold text-slate-700">
-                            <span className="truncate max-w-[80px]">{m.home_team}</span>
-                            <span className="text-[9px] text-slate-300">vs</span>
-                            <span className="truncate max-w-[80px]">{m.away_team}</span>
-                          </div>
-                          {isFinalized && (
-                            <div className="text-[9.5px] text-slate-400 font-medium">
-                              Resultado: <span className="font-bold text-slate-600">{m.home_score} – {m.away_score}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="flex-1 flex justify-end items-center gap-3 shrink-0">
-                          <div className="flex flex-col items-center">
-                            <span className="text-[8px] uppercase tracking-wider font-bold text-slate-400">Pick</span>
-                            <span className="font-display font-bold text-xs text-emerald-600">
-                              {hasPred ? `${p.prediction.pred_home} – ${p.prediction.pred_away}` : "—"}
-                            </span>
-                          </div>
-                          <div className="min-w-[80px] text-right">
-                            {isFinalized ? (
-                              <PointsBadge pts={p.points} />
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 text-slate-400 shrink-0">
-                                {m.status === "finalized" ? "Finalizado" : "En juego"}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {dailyHero && <HeroDestacado hero={dailyHero} />}
     </div>
   );
 }

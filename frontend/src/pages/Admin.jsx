@@ -4,9 +4,11 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
 } from "../components/ui/dropdown-menu";
 import { toast } from "sonner";
-import { ShieldCheck, RotateCcw, Users, Trophy, Check, X, Trash2, ClipboardList, Lock, LockOpen, MoreVertical, Flag, Save, RefreshCw, HelpCircle } from "lucide-react";
-import { getInitials, triggerSync } from "../lib/api";
+import { ShieldCheck, RotateCcw, Users, Trophy, Check, X, Trash2, ClipboardList, Lock, LockOpen, MoreVertical, Flag, Save, RefreshCw, HelpCircle, Bell, Send, Flame, CalendarDays } from "lucide-react";
+import { getInitials, triggerSync, sendPushNotification } from "../lib/api";
 import { useLive } from "../lib/live";
+import usePolling from "../lib/usePolling";
+import useRealtimeMatches from "../lib/useRealtimeMatches";
 
 const formatCOP = (n) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(n);
@@ -137,12 +139,7 @@ function AdminMatchRow({ match, onUpdated, users = [], predictedUserIds = new Se
   const [busy, setBusy] = useState(false);
   const localPreview = isLocalAdminPreviewEnabled();
 
-  useEffect(() => {
-    if (!predictionUserId && users.length > 0) {
-      const preferred = users.find((u) => u.role !== "admin") || users[0];
-      setPredictionUserId(preferred?.id || "");
-    }
-  }, [users, predictionUserId]);
+  // Sin selección por defecto — el admin elige explícitamente para evitar errores
 
   useEffect(() => {
     setHome(match.home_score ?? "");
@@ -254,8 +251,21 @@ function AdminMatchRow({ match, onUpdated, users = [], predictedUserIds = new Se
     }
   };
 
+  const propagateWinner = async (winner) => {
+    setBusy(true);
+    try {
+      await api.put(`/matches/${match.id}/propagate`, { winner });
+      toast.success(`${winner === "home" ? match.home_team : match.away_team} avanza al siguiente partido ✓`);
+    } catch (err) {
+      toast.error("No se pudo propagar el ganador");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const finalized = match.status === "finalized";
   const locked = match.predictions_locked;
+  const isDraw = finalized && match.home_score !== null && match.home_score === match.away_score;
 
   const savePredictionForUser = async (e) => {
     e.preventDefault();
@@ -357,6 +367,21 @@ function AdminMatchRow({ match, onUpdated, users = [], predictedUserIds = new Se
             <RotateCcw className="w-3.5 h-3.5" /> Reabrir / Limpiar
           </button>
         )}
+        {isDraw && (
+          <div className="w-full mt-2 p-3 rounded-lg bg-orange-500/10 border border-orange-500/30">
+            <p className="text-xs text-orange-300 font-semibold mb-2">⚽ Empate — ¿Quién avanza por penales?</p>
+            <div className="flex gap-2">
+              <button type="button" onClick={() => propagateWinner("home")} disabled={busy}
+                className="flex-1 text-xs py-1.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-200 hover:bg-orange-500/30 font-medium">
+                {match.home_team}
+              </button>
+              <button type="button" onClick={() => propagateWinner("away")} disabled={busy}
+                className="flex-1 text-xs py-1.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-200 hover:bg-orange-500/30 font-medium">
+                {match.away_team}
+              </button>
+            </div>
+          </div>
+        )}
         {!finalized && (
           <button
             type="button"
@@ -376,7 +401,7 @@ function AdminMatchRow({ match, onUpdated, users = [], predictedUserIds = new Se
       {/* Ingresar pronóstico por usuario */}
       {/* Quién falta por pronosticar */}
       {users.length > 0 && (() => {
-        const missing = users.filter((u) => u.role !== "admin" && !predictedUserIds.has(u.id));
+        const missing = users.filter((u) => (u.role === "admin" || u.paid) && !predictedUserIds.has(u.id));
         if (missing.length === 0) return null;
         return (
           <div className="border-t border-white/10 pt-3 flex flex-col gap-1.5">
@@ -411,6 +436,7 @@ function AdminMatchRow({ match, onUpdated, users = [], predictedUserIds = new Se
               onChange={(e) => setPredictionUserId(e.target.value)}
               className="text-sm bg-white border border-slate-200 text-slate-800 rounded-lg px-3 py-1.5 outline-none focus:border-emerald-500 cursor-pointer flex-1 min-w-[140px]"
             >
+              <option value="">— Elige usuario —</option>
               {users.map((u) => (
                 <option key={u.id} value={u.id}>{u.name}</option>
               ))}
@@ -692,11 +718,18 @@ function UsersTab({ onlineUsers, onlineCount }) {
   );
 }
 
+function getColombiaDateStr() {
+  const now = new Date(Date.now() - 5 * 60 * 60 * 1000);
+  return now.toISOString().slice(0, 10);
+}
+
 function MatchesTab() {
   const [matches, setMatches] = useState([]);
   const [users, setUsers] = useState([]);
   const [predGroups, setPredGroups] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [calculating, setCalculating] = useState(false);
+  const [openMatches, setOpenMatches] = useState({});
   const localPreview = isLocalAdminPreviewEnabled();
 
   const load = async () => {
@@ -722,7 +755,8 @@ function MatchesTab() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  usePolling(load, 30000);
+  useRealtimeMatches(load);
 
   const onUpdated = (m) => {
     setMatches((prev) => {
@@ -742,18 +776,134 @@ function MatchesTab() {
     predictedByMatch.set(match.id, new Set(predictions.map((p) => p.user_id)));
   }
 
+  const todayStr = getColombiaDateStr();
+
+  const matchOrder = (m) => {
+    const dateStr = m.match_date?.slice(0, 10);
+    if (dateStr === todayStr) return 0;
+    if (m.status !== "finalized") return 1;
+    return 2;
+  };
+  const sortedMatches = [...matches].sort((a, b) => {
+    const oa = matchOrder(a), ob = matchOrder(b);
+    if (oa !== ob) return oa - ob;
+    return new Date(a.match_date) - new Date(b.match_date);
+  });
+
+  const toggleMatch = (id) =>
+    setOpenMatches((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  const isMatchOpen = (m) => {
+    const isToday = m.match_date?.slice(0, 10) === todayStr;
+    // hoy: abierto por defecto a menos que explícitamente cerrado
+    if (isToday) return openMatches[m.id] !== false;
+    // resto: cerrado por defecto a menos que explícitamente abierto
+    return openMatches[m.id] === true;
+  };
+
+  const handleCalculateQualifiers = async () => {
+    setCalculating(true);
+    try {
+      const { data } = await api.post("/admin/calculate-qualifiers", {});
+      if (data.updated > 0) {
+        toast.success(`Actualizados ${data.updated} de ${data.totalR32} partidos de 16avos`);
+      } else {
+        toast.success("Sin cambios — aún no hay grupos suficientes finalizados, o ya estaba actualizado");
+      }
+      if (data.unresolved?.length > 0) {
+        toast.error(`No se pudo resolver: ${data.unresolved.join(", ")}`);
+      }
+      await load();
+    } catch (err) {
+      toast.error(err.message || "No se pudo calcular");
+    } finally {
+      setCalculating(false);
+    }
+  };
+
   if (loading) return <div className="text-zinc-400">Cargando…</div>;
+
+  const todayMatches = sortedMatches.filter(m => m.match_date?.slice(0, 10) === todayStr);
+  const otherMatches = sortedMatches.filter(m => m.match_date?.slice(0, 10) !== todayStr);
+
+  const renderAccordion = (m) => {
+    const isOpen = isMatchOpen(m);
+    const finalized = m.status === "finalized";
+    const isToday = m.match_date?.slice(0, 10) === todayStr;
+    return (
+      <div key={m.id} className="card-surface overflow-hidden">
+        <button
+          type="button"
+          onClick={() => toggleMatch(m.id)}
+          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-colors text-left"
+        >
+          <img src={m.logo_home} alt="" className="w-6 h-6 object-contain shrink-0" />
+          <span className="font-semibold text-sm truncate flex-1">{m.home_team}</span>
+          <span className="text-zinc-500 text-xs">vs</span>
+          <span className="font-semibold text-sm truncate flex-1 text-right">{m.away_team}</span>
+          <img src={m.logo_away} alt="" className="w-6 h-6 object-contain shrink-0" />
+          <div className="flex items-center gap-2 shrink-0 ml-2">
+            {finalized && (
+              <span className="text-xs font-bold text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded">
+                {m.home_score}–{m.away_score}
+              </span>
+            )}
+            <span className={`text-[10px] uppercase tracking-[0.15em] font-bold px-2 py-0.5 rounded border ${
+              finalized ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+              : isToday ? "text-amber-300 bg-amber-500/10 border-amber-500/20"
+              : "text-purple-300 bg-purple-500/10 border-purple-500/20"
+            }`}>
+              {finalized ? "Finalizado" : isToday ? "Hoy" : "Pendiente"}
+            </span>
+            <span className="text-zinc-500 text-xs">{m.match_date ? formatDate(m.match_date) : ""}</span>
+            <span className="text-zinc-500 text-sm">{isOpen ? "▲" : "▼"}</span>
+          </div>
+        </button>
+        {isOpen && (
+          <div className="border-t border-white/10">
+            <AdminMatchRow
+              match={m}
+              onUpdated={onUpdated}
+              users={users}
+              predictedUserIds={predictedByMatch.get(m.id) || new Set()}
+            />
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <div className="space-y-4">
-      {matches.map((m) => (
-        <AdminMatchRow
-          key={m.id}
-          match={m}
-          onUpdated={onUpdated}
-          users={users}
-          predictedUserIds={predictedByMatch.get(m.id) || new Set()}
-        />
-      ))}
+    <div className="space-y-3">
+      <button
+        onClick={handleCalculateQualifiers}
+        disabled={calculating}
+        className="btn-primary inline-flex items-center gap-2 text-sm"
+      >
+        <RefreshCw className={`w-4 h-4 ${calculating ? "animate-spin" : ""}`} />
+        {calculating ? "Calculando…" : "Calcular clasificados a 16avos"}
+      </button>
+
+      {todayMatches.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 px-1">
+            <CalendarDays className="w-4 h-4 text-amber-400" />
+            <span className="text-xs font-bold uppercase tracking-widest text-amber-400">Partidos de hoy</span>
+          </div>
+          {todayMatches.map(renderAccordion)}
+        </div>
+      )}
+
+      {otherMatches.length > 0 && (
+        <div className="space-y-2">
+          {todayMatches.length > 0 && (
+            <div className="flex items-center gap-2 px-1 pt-2">
+              <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">Otros partidos</span>
+            </div>
+          )}
+          {otherMatches.map(renderAccordion)}
+        </div>
+      )}
     </div>
   );
 }
@@ -799,11 +949,32 @@ function PredictionsTab() {
   if (loading) return <div className="text-zinc-400">Cargando pronósticos…</div>;
   if (groups.length === 0) return <div className="card-surface p-8 text-center text-zinc-400">No hay partidos todavía.</div>;
 
-  return (
-    <div className="space-y-4">
-      {groups.map(({ match, predictions }) => {
-        const isOpen = open[match.id] !== false;
+  const todayCol = getColombiaDateStr();
+  const predOrder = (m) => {
+    const dateStr = m.match_date?.slice(0, 10);
+    if (dateStr === todayCol) return 0;
+    if (m.status !== "finalized") return 1;
+    return 2;
+  };
+  const sortedGroups = [...groups].sort((a, b) => {
+    const oa = predOrder(a.match), ob = predOrder(b.match);
+    if (oa !== ob) return oa - ob;
+    return new Date(a.match.match_date) - new Date(b.match.match_date);
+  });
+
+  const todayGroups = sortedGroups.filter(g => g.match.match_date?.slice(0, 10) === todayCol);
+  const otherGroups = sortedGroups.filter(g => g.match.match_date?.slice(0, 10) !== todayCol);
+
+  const isPredOpen = (match) => {
+    const isToday = match.match_date?.slice(0, 10) === todayCol;
+    if (isToday) return open[match.id] !== false;
+    return open[match.id] === true;
+  };
+
+  const renderPredGroup = ({ match, predictions }) => {
+        const isOpen = isPredOpen(match);
         const finalized = match.status === "finalized";
+        const isToday = match.match_date?.slice(0, 10) === todayCol;
         return (
           <div key={match.id} className="card-surface overflow-hidden">
             <button
@@ -825,8 +996,10 @@ function PredictionsTab() {
                   </span>
                 )}
                 <span className={`text-[10px] uppercase tracking-[0.15em] font-bold px-2 py-0.5 rounded border ${
-                  finalized ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/20" : "text-purple-300 bg-purple-500/10 border-purple-500/20"
-                }`}>{finalized ? "Finalizado" : "Pendiente"}</span>
+                  finalized ? "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+                  : isToday ? "text-amber-300 bg-amber-500/10 border-amber-500/20"
+                  : "text-purple-300 bg-purple-500/10 border-purple-500/20"
+                }`}>{finalized ? "Finalizado" : isToday ? "Hoy" : "Pendiente"}</span>
                 <span className="text-xs text-zinc-500">{predictions.length} pronóstico{predictions.length !== 1 ? "s" : ""}</span>
                 <span className="text-zinc-500 text-sm">{isOpen ? "▲" : "▼"}</span>
               </div>
@@ -875,7 +1048,29 @@ function PredictionsTab() {
             )}
           </div>
         );
-      })}
+  };
+
+  return (
+    <div className="space-y-3">
+      {todayGroups.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 px-1">
+            <CalendarDays className="w-4 h-4 text-amber-400" />
+            <span className="text-xs font-bold uppercase tracking-widest text-amber-400">Partidos de hoy</span>
+          </div>
+          {todayGroups.map(renderPredGroup)}
+        </div>
+      )}
+      {otherGroups.length > 0 && (
+        <div className="space-y-2">
+          {todayGroups.length > 0 && (
+            <div className="px-1 pt-2">
+              <span className="text-xs font-bold uppercase tracking-widest text-zinc-500">Otros partidos</span>
+            </div>
+          )}
+          {otherGroups.map(renderPredGroup)}
+        </div>
+      )}
     </div>
   );
 }
@@ -980,6 +1175,104 @@ function AdminTriviaAssign({ pendingUsers, onDone }) {
   );
 }
 
+function VipOverridePanel({ users }) {
+  const [selectedUser, setSelectedUser] = useState("");
+  const [selectedDate, setSelectedDate] = useState(() => {
+    // Por defecto: fecha de hoy en Colombia (UTC-5)
+    const now = new Date(Date.now() - 5 * 60 * 60 * 1000);
+    return now.toISOString().slice(0, 10);
+  });
+  const [saving, setSaving] = useState(false);
+  const [overrides, setOverrides] = useState([]);
+
+  const loadOverrides = async () => {
+    try {
+      const { data } = await api.get("/admin/trivia/vip-overrides");
+      setOverrides(data || []);
+    } catch { /* silencioso */ }
+  };
+
+  useEffect(() => { loadOverrides(); }, []);
+
+  const handleSave = async () => {
+    if (!selectedUser || !selectedDate) return;
+    setSaving(true);
+    try {
+      await api.post("/admin/trivia/vip-override", { user_id: selectedUser, override_date: selectedDate });
+      toast.success("Pregunta VIP asignada 🎉");
+      loadOverrides();
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail) || "Error al guardar");
+    } finally { setSaving(false); }
+  };
+
+  const handleDelete = async (user_id, override_date) => {
+    try {
+      await api.post("/admin/trivia/vip-override/delete", { user_id, override_date });
+      toast.success("Override eliminado");
+      loadOverrides();
+    } catch { toast.error("Error al eliminar"); }
+  };
+
+  const userName = users.find(u => u.id === selectedUser)?.name || "";
+
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-4">
+      <div className="flex items-center gap-2">
+        <Flame className="w-4 h-4 text-amber-500" />
+        <span className="font-bold text-sm text-amber-800">Pregunta VIP (bonus — siempre correcta)</span>
+      </div>
+      <p className="text-xs text-amber-700 leading-relaxed">
+        Asigna la pregunta del cordón de Ghiggia a un usuario en una fecha específica.
+        Esa persona verá esa pregunta en vez de la aleatoria del día, y cualquier respuesta contará como correcta (+0.5 pts).
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <select
+          value={selectedUser}
+          onChange={e => setSelectedUser(e.target.value)}
+          className="text-sm border border-amber-300 rounded-lg px-3 py-2 bg-white text-slate-700 flex-1 min-w-[160px]"
+        >
+          <option value="">— Seleccionar usuario —</option>
+          {users.map(u => (
+            <option key={u.id} value={u.id}>{u.name}</option>
+          ))}
+        </select>
+        <input
+          type="date"
+          value={selectedDate}
+          onChange={e => setSelectedDate(e.target.value)}
+          className="text-sm border border-amber-300 rounded-lg px-3 py-2 bg-white text-slate-700"
+        />
+        <button
+          onClick={handleSave}
+          disabled={!selectedUser || !selectedDate || saving}
+          className="btn-primary text-sm px-4 py-2 disabled:opacity-50"
+        >
+          {saving ? "Guardando…" : "Asignar VIP"}
+        </button>
+      </div>
+
+      {overrides.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-semibold text-amber-800">Asignaciones activas:</p>
+          {overrides.map(o => (
+            <div key={o.id} className="flex items-center justify-between text-xs bg-white border border-amber-200 rounded-lg px-3 py-2">
+              <span className="font-medium text-slate-700">{o.profiles?.name || o.user_id}</span>
+              <span className="text-slate-400 mx-2">{o.override_date}</span>
+              <button
+                onClick={() => handleDelete(o.user_id, o.override_date)}
+                className="text-rose-500 hover:text-rose-700"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TriviaStatusTab() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1019,7 +1312,7 @@ function TriviaStatusTab() {
 
       const answered = triviaResults.filter(r => r.answeredToday);
       const pending = triviaResults.filter(r => !r.answeredToday);
-      setData({ answered, pending, todayStr: colombiaStr });
+      setData({ answered, pending, todayStr: colombiaStr, users });
     } catch (err) {
       toast.error("Error cargando trivia");
     } finally {
@@ -1032,7 +1325,7 @@ function TriviaStatusTab() {
   if (loading) return <div className="text-slate-400 py-8 text-sm">Cargando...</div>;
   if (!data) return null;
 
-  const { answered, pending, todayStr } = data;
+  const { answered, pending, todayStr, users } = data;
   const dayNum = Math.floor((new Date(todayStr + "T00:00:00Z") - new Date("2026-06-11T00:00:00Z")) / 86400000) + 1;
 
   return (
@@ -1052,6 +1345,9 @@ function TriviaStatusTab() {
         pendingUsers={pending.map(r => r.user)}
         onDone={load}
       />
+
+      {/* Pregunta VIP */}
+      <VipOverridePanel users={users} />
 
       {/* Pendientes */}
       <div>
@@ -1100,6 +1396,533 @@ function TriviaStatusTab() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ToggleSwitch({ checked, onChange, disabled }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      disabled={disabled}
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors shrink-0 ${
+        checked ? "bg-emerald-600" : "bg-slate-300"
+      } ${disabled ? "opacity-50" : ""}`}
+    >
+      <span
+        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+          checked ? "translate-x-6" : "translate-x-1"
+        }`}
+      />
+    </button>
+  );
+}
+
+function DailyReminderSettingsCard() {
+  const [settings, setSettings] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [sendingNow, setSendingNow] = useState(false);
+
+  const load = () => {
+    api.get("/daily-reminder-settings").then(({ data }) => setSettings(data)).catch(() => {});
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put("/daily-reminder-settings", { enabled: settings.enabled, message: settings.message });
+      toast.success("Configuración guardada");
+    } catch (err) {
+      toast.error(err.message || "No se pudo guardar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const sendNow = async () => {
+    setSendingNow(true);
+    try {
+      const { data: matches } = await api.get("/matches");
+      const colKey = (iso) => {
+        const d = new Date(new Date(iso).getTime() - 5 * 3600000);
+        return d.toISOString().slice(0, 10);
+      };
+      const today = colKey(new Date().toISOString());
+      const count = (matches || []).filter((m) => m.match_date && colKey(m.match_date) === today).length;
+      if (count === 0) {
+        toast.error("No hay partidos programados para hoy");
+        return;
+      }
+      const filled = settings.message.replace(/\{count\}/g, count);
+      const result = await sendPushNotification({ title: "Polla Breve", body: filled, target: "all" });
+      toast.success(`Enviada a ${result.sent} de ${result.total} suscritos (${count} partidos hoy)`);
+    } catch (err) {
+      toast.error(err.message || "No se pudo enviar");
+    } finally {
+      setSendingNow(false);
+    }
+  };
+
+  if (!settings) return null;
+
+  return (
+    <div className="card-surface p-6 max-w-xl animate-fade-up">
+      <div className="flex items-center justify-between gap-3 mb-1">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="w-5 h-5 text-emerald-600" />
+          <h2 className="font-display font-bold text-lg text-slate-800">Recordatorio diario de partidos</h2>
+        </div>
+        <ToggleSwitch checked={settings.enabled} onChange={(v) => setSettings({ ...settings, enabled: v })} disabled={saving} />
+      </div>
+      <p className="text-sm text-slate-400 mb-4">
+        Usa <code className="bg-slate-100 px-1 rounded">{"{count}"}</code> en el mensaje — se reemplaza por la cantidad de partidos de hoy al enviar.
+      </p>
+      <textarea
+        value={settings.message}
+        onChange={(e) => setSettings({ ...settings, message: e.target.value })}
+        rows={2}
+        maxLength={200}
+        className="form-input w-full text-sm resize-none mb-3"
+        disabled={saving}
+      />
+      <div className="flex items-center gap-2">
+        <button onClick={save} disabled={saving} className="btn-primary text-sm px-4 py-2">
+          {saving ? "Guardando…" : "Guardar"}
+        </button>
+        <button
+          onClick={sendNow}
+          disabled={sendingNow || !settings.enabled}
+          className="inline-flex items-center gap-1.5 text-sm font-semibold px-4 py-2 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+        >
+          <Send className="w-3.5 h-3.5" /> {sendingNow ? "Enviando…" : "Enviar ahora"}
+        </button>
+        {!settings.enabled && <span className="text-[11px] text-slate-400">Apagado — activa para poder enviar</span>}
+      </div>
+    </div>
+  );
+}
+
+const DEFAULT_MOTIVATION_MESSAGE =
+  "Estás a escasos {gap} puntos del primer lugar. El líder ya está mirando el retrovisor con pánico y empezó a sudar frío. No bajes el ritmo, que esa punta está que se cae... Tú llevas {user_points} pts y el líder {leader_points} pts.";
+
+function MotivationSettingsCard() {
+  const [settings, setSettings] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [forceMode, setForceMode] = useState("none"); // "none" | "all" | "select"
+  const [selectedUsers, setSelectedUsers] = useState([]);
+  const [forceSaving, setForceSaving] = useState(false);
+
+  const load = () => {
+    api.get("/motivation-settings").then(({ data }) => setSettings(data)).catch(() => {});
+    api.get("/admin/users").then(({ data }) => setUsers(data || [])).catch(() => {});
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put("/motivation-settings", {
+        enabled: settings.enabled,
+        message: settings.message,
+        title: settings.title ?? "¡Está cerca!",
+        threshold: settings.threshold,
+      });
+      toast.success("Configuración guardada");
+    } catch (err) {
+      toast.error(err.message || "No se pudo guardar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const sendForced = async () => {
+    if (forceMode === "none") return;
+    setForceSaving(true);
+    try {
+      const targets = forceMode === "all" ? ["all"] : selectedUsers;
+      if (targets.length === 0) { toast.error("Selecciona al menos un usuario"); return; }
+      // Guarda mensaje, título Y force_targets juntos para que el modal use el texto actual
+      await api.put("/motivation-settings", {
+        message: settings.message,
+        title: settings.title ?? "¡Está cerca!",
+        threshold: settings.threshold,
+        enabled: settings.enabled,
+        force_targets: targets,
+      });
+      toast.success(forceMode === "all" ? "Modal activado para todos — verán el mensaje la próxima vez que entren" : `Modal activado para ${targets.length} usuario(s)`);
+      setForceMode("none");
+      setSelectedUsers([]);
+    } catch (err) {
+      toast.error(err.message || "No se pudo guardar");
+    } finally {
+      setForceSaving(false);
+    }
+  };
+
+  const toggleUser = (id) =>
+    setSelectedUsers(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  if (!settings) return null;
+
+  return (
+    <div className="card-surface p-6 max-w-xl animate-fade-up space-y-4">
+      {/* Encabezado */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Flame className="w-5 h-5 text-rose-500" />
+          <h2 className="font-display font-bold text-lg text-slate-800">Mensaje "vas cerca del líder"</h2>
+        </div>
+        <ToggleSwitch checked={settings.enabled} onChange={(v) => setSettings({ ...settings, enabled: v })} disabled={saving} />
+      </div>
+      <p className="text-sm text-slate-400">
+        Aparece como modal (con animación) 1 vez al día a quien esté a {settings.threshold} puntos o menos del líder.
+        Usa <code className="bg-slate-100 px-1 rounded">{"{gap}"}</code>, <code className="bg-slate-100 px-1 rounded">{"{user_points}"}</code> y{" "}
+        <code className="bg-slate-100 px-1 rounded">{"{leader_points}"}</code>.
+      </p>
+
+      {/* Threshold */}
+      <div>
+        <label className="text-xs font-semibold text-slate-500 mb-1 block">Diferencia máxima de puntos</label>
+        <input
+          type="number" min={1} value={settings.threshold}
+          onChange={(e) => setSettings({ ...settings, threshold: e.target.value })}
+          className="form-input w-24 text-sm" disabled={saving}
+        />
+      </div>
+
+      {/* Título */}
+      <div>
+        <label className="text-xs font-semibold text-slate-500 mb-1 block">Título del modal</label>
+        <input
+          type="text"
+          value={settings.title ?? "¡Está cerca!"}
+          onChange={(e) => setSettings({ ...settings, title: e.target.value })}
+          maxLength={60}
+          placeholder="ej. ¡Está cerca!"
+          className="form-input w-full text-sm"
+          disabled={saving}
+        />
+      </div>
+
+      {/* Mensaje */}
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-xs font-semibold text-slate-500">Mensaje</label>
+          <button
+            type="button"
+            onClick={() => setSettings({ ...settings, message: DEFAULT_MOTIVATION_MESSAGE })}
+            className="text-[11px] text-sky-600 hover:text-sky-800 underline"
+          >
+            Restaurar texto original
+          </button>
+        </div>
+        <textarea
+          value={settings.message}
+          onChange={(e) => setSettings({ ...settings, message: e.target.value })}
+          rows={3} maxLength={300}
+          className="form-input w-full text-sm resize-none"
+          disabled={saving}
+        />
+      </div>
+
+      <button onClick={save} disabled={saving} className="btn-primary text-sm px-4 py-2">
+        {saving ? "Guardando…" : "Guardar"}
+      </button>
+
+      {/* Forzar modal a usuarios específicos */}
+      <div className="border-t border-slate-100 pt-4 space-y-3">
+        <div>
+          <p className="text-xs font-bold text-slate-600 mb-1">Forzar modal ahora</p>
+          <p className="text-xs text-slate-400">El modal aparecerá la próxima vez que entren, sin importar su puntaje.</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          {["none","all","select"].map(mode => (
+            <button
+              key={mode}
+              onClick={() => setForceMode(mode)}
+              className={`text-xs px-3 py-1.5 rounded-lg border font-semibold transition-colors ${
+                forceMode === mode
+                  ? "bg-rose-500 border-rose-500 text-white"
+                  : "bg-white border-slate-200 text-slate-600 hover:border-rose-300"
+              }`}
+            >
+              {mode === "none" ? "No forzar" : mode === "all" ? "Todos" : "Elegir usuarios"}
+            </button>
+          ))}
+        </div>
+
+        {forceMode === "select" && (
+          <div className="flex flex-wrap gap-2 max-h-48 overflow-y-auto">
+            {users.filter(u => u.role !== "admin").map(u => (
+              <button
+                key={u.id}
+                onClick={() => toggleUser(u.id)}
+                className={`text-xs px-3 py-1.5 rounded-full border font-medium transition-colors ${
+                  selectedUsers.includes(u.id)
+                    ? "bg-rose-100 border-rose-400 text-rose-700"
+                    : "bg-white border-slate-200 text-slate-600 hover:border-rose-200"
+                }`}
+              >
+                {u.name} {!u.paid && <span className="text-amber-500 ml-1">· pendiente</span>}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {forceMode !== "none" && (
+          <button
+            onClick={sendForced}
+            disabled={forceSaving || (forceMode === "select" && selectedUsers.length === 0)}
+            className="btn-primary text-sm px-4 py-2 disabled:opacity-50"
+          >
+            {forceSaving ? "Guardando…" : forceMode === "all" ? "Activar para todos" : `Activar para ${selectedUsers.length} usuario(s)`}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NotificationsTab() {
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [targetUserId, setTargetUserId] = useState("all");
+  const [users, setUsers] = useState([]);
+  const [sending, setSending] = useState(false);
+  const [lastResult, setLastResult] = useState(null);
+  const [lastError, setLastError] = useState(null);
+
+  useEffect(() => {
+    api.get("/admin/users").then(({ data }) => setUsers(data || [])).catch(() => {});
+  }, []);
+
+  const send = async (e) => {
+    e.preventDefault();
+    if (!title.trim() || !body.trim()) {
+      toast.error("Escribe título y mensaje");
+      return;
+    }
+    setSending(true);
+    setLastResult(null);
+    setLastError(null);
+    try {
+      const result = await sendPushNotification({
+        title: title.trim(),
+        body: body.trim(),
+        target: targetUserId,
+      });
+      setLastResult(result);
+      toast.success(`Enviada a ${result.sent} de ${result.total} suscritos`);
+      setTitle("");
+      setBody("");
+    } catch (err) {
+      setLastError(err.message || "Error desconocido");
+      toast.error(err.message || "No se pudo enviar la notificación");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+    <div className="card-surface p-6 max-w-xl animate-fade-up">
+      <div className="flex items-center gap-2 mb-1">
+        <Bell className="w-5 h-5 text-emerald-600" />
+        <h2 className="font-display font-bold text-xl text-slate-800">Enviar notificación push</h2>
+      </div>
+      <p className="text-sm text-slate-400 mb-5">
+        Llega a los usuarios que hayan activado las notificaciones (la campana 🔔 del header), aunque tengan el navegador cerrado.
+      </p>
+      <form onSubmit={send} className="space-y-3">
+        <div>
+          <label className="text-xs font-semibold text-slate-500 mb-1 block">Enviar a</label>
+          <select
+            value={targetUserId}
+            onChange={(e) => setTargetUserId(e.target.value)}
+            className="form-input w-full text-sm cursor-pointer"
+            disabled={sending}
+          >
+            <option value="all">Todos los usuarios</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>{u.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500 mb-1 block">Título</label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="ej. ¡Hoy hay 6 partidos!"
+            maxLength={60}
+            className="form-input w-full text-sm"
+            disabled={sending}
+          />
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-slate-500 mb-1 block">Mensaje</label>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="ej. No olvides poner tus pronósticos antes de que empiecen."
+            maxLength={200}
+            rows={3}
+            className="form-input w-full text-sm resize-none"
+            disabled={sending}
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={sending}
+          className="btn-primary inline-flex items-center gap-2 text-sm"
+        >
+          <Send className="w-4 h-4" />
+          {sending ? "Enviando…" : targetUserId === "all" ? "Enviar a todos" : "Enviar"}
+        </button>
+      </form>
+
+      {lastResult && (
+        <div className="mt-4 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-3">
+          Última vez: <strong className="text-slate-700">{lastResult.sent}</strong> enviadas,{" "}
+          <strong className="text-slate-700">{lastResult.failed}</strong> fallidas, de{" "}
+          <strong className="text-slate-700">{lastResult.total}</strong> suscritos.
+        </div>
+      )}
+      {lastError && (
+        <div className="mt-4 text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-3">
+          <strong>Error:</strong> {lastError}
+        </div>
+      )}
+    </div>
+
+    <DailyReminderSettingsCard />
+    <MotivationSettingsCard />
+    <BonusGradingCard />
+    </div>
+  );
+}
+
+const BONUS_TYPES_DEF = [
+  { type: "champion",        label: "Campeón del Mundial",        pts: 5 },
+  { type: "runner_up",       label: "Subcampeón del Mundial",     pts: 3 },
+  { type: "top_scorer",      label: "Goleador del torneo",        pts: 3 },
+  { type: "best_player",     label: "Mejor jugador del torneo",   pts: 3 },
+  { type: "best_goalkeeper", label: "Mejor arquero del torneo",   pts: 3 },
+];
+
+function BonusGradingCard() {
+  const [values, setValues] = useState({
+    champion: "", runner_up: "", top_scorer: "", best_player: "", best_goalkeeper: ""
+  });
+  const [submitted, setSubmitted] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [reverting, setReverting] = useState(false);
+  const [graded, setGraded] = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      api.get("/admin/bonus/official").catch(() => ({ data: {} })),
+      api.get("/admin/bonus/submitted").catch(() => ({ data: {} })),
+    ]).then(([{ data: official }, { data: sub }]) => {
+      setSubmitted(sub || {});
+      if (official && Object.keys(official).length > 0) {
+        setValues(v => ({ ...v, ...official }));
+        setGraded(true);
+      }
+    });
+  }, []);
+
+  const handleGrade = async () => {
+    const filled = Object.values(values).some(v => v.trim());
+    if (!filled) { toast.error("Selecciona al menos un resultado"); return; }
+    setBusy(true);
+    try {
+      await api.post("/admin/bonus/grade", values);
+      toast.success("¡Bonus calificados! El ranking se actualiza automáticamente.");
+      setGraded(true);
+    } catch (err) {
+      toast.error(err?.message || "Error al calificar bonus");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRevert = async () => {
+    if (!window.confirm("¿Seguro que quieres revertir todos los puntos bonus? Esta acción quitará los puntos asignados.")) return;
+    setReverting(true);
+    try {
+      await api.post("/admin/bonus/revert", {});
+      toast.success("Puntos bonus revertidos.");
+      setValues({ champion: "", runner_up: "", top_scorer: "", best_player: "", best_goalkeeper: "" });
+      setGraded(false);
+    } catch (err) {
+      toast.error(err?.message || "Error al revertir");
+    } finally {
+      setReverting(false);
+    }
+  };
+
+  const clear = (type) => setValues(v => ({ ...v, [type]: "" }));
+
+  return (
+    <div className="card-surface p-5 mt-6">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="font-display font-black text-lg text-slate-900">🏆 Calificar Bonus Final</h3>
+        {graded && (
+          <button
+            onClick={handleRevert}
+            disabled={reverting}
+            className="text-xs font-bold text-rose-500 hover:text-rose-700 border border-rose-200 hover:border-rose-400 px-3 py-1 rounded-lg transition-colors"
+          >
+            {reverting ? "Revirtiendo…" : "Revertir todo"}
+          </button>
+        )}
+      </div>
+      <p className="text-xs text-slate-400 mb-4">Selecciona los ganadores oficiales. Los puntos se asignan automáticamente a todos los participantes.</p>
+      <div className="space-y-3">
+        {BONUS_TYPES_DEF.map(({ type, label, pts }) => (
+          <div key={type} className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            <label className="text-sm text-slate-600 w-52 shrink-0">
+              {label} <span className="text-emerald-600 font-bold">+{pts}pts</span>
+            </label>
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <select
+                value={values[type]}
+                onChange={e => setValues(v => ({ ...v, [type]: e.target.value }))}
+                disabled={busy || reverting}
+                className="input-field flex-1 text-sm appearance-none bg-white"
+              >
+                <option value="">— Seleccionar ganador —</option>
+                {(submitted[type] || []).map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+              {values[type] && (
+                <button
+                  onClick={() => clear(type)}
+                  title="Limpiar selección"
+                  className="text-slate-400 hover:text-rose-500 transition-colors shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      <button
+        onClick={handleGrade}
+        disabled={busy || reverting}
+        className="btn-primary w-full mt-5 text-sm"
+      >
+        {busy ? "Calificando…" : graded ? "Actualizar calificación" : "Calificar y actualizar ranking"}
+      </button>
     </div>
   );
 }
@@ -1172,11 +1995,13 @@ export default function Admin() {
         {tabBtn("users", <Users className="w-4 h-4" />, "Inscritos", "admin-tab-users")}
         {tabBtn("predictions", <ClipboardList className="w-4 h-4" />, "Pronósticos", "admin-tab-predictions")}
         {tabBtn("trivia", <HelpCircle className="w-4 h-4" />, "Trivia", "admin-tab-trivia")}
+        {tabBtn("notifications", <Bell className="w-4 h-4" />, "Notificaciones", "admin-tab-notifications")}
       </div>
 
       {tab === "matches" ? <MatchesTab /> :
        tab === "users" ? <UsersTab onlineUsers={onlineUsers} onlineCount={onlineCount} /> :
        tab === "trivia" ? <TriviaStatusTab /> :
+       tab === "notifications" ? <NotificationsTab /> :
        <PredictionsTab />}
     </div>
   );

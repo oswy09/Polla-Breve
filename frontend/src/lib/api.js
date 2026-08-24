@@ -36,6 +36,7 @@ function normalizeProfile(p) {
     email: p.email,
     role: p.role || "user",
     paid: Boolean(p.paid),
+    avatar_url: p.avatar_url || null,
     created_at: p.created_at || null,
   };
 }
@@ -102,7 +103,7 @@ async function getCurrentProfile({ requireAuth = false, requireAdmin = false } =
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
-    .select("id, name, email, role, paid, active, created_at")
+    .select("id, name, email, role, paid, active, avatar_url, created_at")
     .eq("id", user.id)
     .maybeSingle();
 
@@ -135,6 +136,19 @@ async function getScoringRules() {
     .maybeSingle();
   if (error) throw error;
   return data || { exact_result: 3, correct_winner: 2, correct_draw: 2, champion_bonus: 10, top_scorer_bonus: 5 };
+}
+
+async function getTeams() {
+  const { data, error } = await supabase
+    .from("matches")
+    .select("home_team, away_team");
+  if (error) throw error;
+  const teams = new Set();
+  (data || []).forEach(m => {
+    if (m.home_team) teams.add(m.home_team);
+    if (m.away_team) teams.add(m.away_team);
+  });
+  return Array.from(teams).sort();
 }
 
 async function listMatches() {
@@ -267,9 +281,14 @@ async function upsertBonus(payload) {
     .limit(1)
     .maybeSingle();
 
-  // Bonus predictions locked after June 16 2026 23:59 UTC
-  const BONUS_DEADLINE = new Date("2026-06-17T00:00:00Z");
-  if (new Date() >= BONUS_DEADLINE) {
+  // Bonus predictions locked after June 24 midnight Colombia (UTC-5) = June 25 05:00 UTC
+  const BONUS_DEADLINE_DEFAULT = new Date("2026-06-25T05:00:00Z");
+  // Excepciones por usuario: plazo extendido individualmente
+  const BONUS_DEADLINE_EXCEPTIONS = {
+    "298ea411-64bc-435a-9db8-1c066738a9b1": new Date("2026-06-27T05:00:00Z"), // Camilo Corredor +2 días
+  };
+  const deadline = BONUS_DEADLINE_EXCEPTIONS[user.id] || BONUS_DEADLINE_DEFAULT;
+  if (new Date() >= deadline) {
     throw httpError(400, "El plazo para predicciones bonus ha cerrado");
   }
 
@@ -303,7 +322,7 @@ async function computeRanking() {
 
   const { data: users, error: usersError } = await supabase
     .from("public_profiles")
-    .select("id, name, role, paid, active")
+    .select("id, name, role, paid, active, avatar_url")
     .eq("active", true);
   if (usersError) throw usersError;
 
@@ -335,7 +354,8 @@ async function computeRanking() {
     const { data, error } = await supabase
       .from("predictions")
       .select("user_id, match_id, pred_home, pred_away")
-      .in("match_id", matchIds);
+      .in("match_id", matchIds)
+      .range(0, 19999);
     if (error) throw error;
     predictions = data;
   }
@@ -384,7 +404,8 @@ async function computeRanking() {
       else if (pts > 0) ganadores += 1;
     }
 
-    return { user_id: user.id, name: user.name, points, exactos, ganadores };
+    const bonus_pts = bonusByUser.get(user.id) || 0;
+    return { user_id: user.id, name: user.name, avatar_url: user.avatar_url || null, points, exactos, ganadores, bonus_pts };
   });
 
   rows.sort((a, b) => {
@@ -479,7 +500,7 @@ async function getMatchLeaderboard(matchId, limit) {
     return a.name.localeCompare(b.name, "es");
   });
 
-  return rows.slice(0, typeof limit === "number" ? limit : 5);
+  return rows;
 }
 
 async function getDailyHero() {
@@ -508,66 +529,27 @@ async function getDailyHero() {
   const yesterdayStr = getLocalDateStr(yesterday);
 
   const matchesByDate = new Map();
-  const activeDatesSet = new Set();
   for (const m of allMatches) {
     const dStr = getLocalDateStr(m.match_date);
     const list = matchesByDate.get(dStr) || [];
     list.push(m);
     matchesByDate.set(dStr, list);
-    
-    const isStarted = m.status === "finalized" || 
-                      m.predictions_locked === true || 
-                      (m.home_score !== null && m.away_score !== null) ||
-                      new Date(m.match_date) <= new Date();
-    if (isStarted) {
-      activeDatesSet.add(dStr);
-    }
   }
 
-  const activeDates = Array.from(activeDatesSet).sort();
-  let activeDate = null;
-  let dateLabel = "";
+  // Últimas 2 fechas con partidos ya con resultado
+  const datesWithResults = Array.from(matchesByDate.entries())
+    .filter(([, ms]) => ms.some(m => m.home_score !== null && m.away_score !== null))
+    .map(([d]) => d)
+    .sort((a, b) => b.localeCompare(a))
+    .slice(0, 2);
 
-  if (activeDates.includes(todayStr)) {
-    activeDate = todayStr;
-    dateLabel = "hoy";
-  } else if (activeDates.length > 0) {
-    // Find the latest active date before or equal to today
-    const pastActiveDates = activeDates.filter(d => d <= todayStr);
-    if (pastActiveDates.length > 0) {
-      activeDate = pastActiveDates[pastActiveDates.length - 1];
-      dateLabel = "ayer";
-    } else {
-      // If all active dates are in the future (e.g. testing), take the first one
-      activeDate = activeDates[0];
-      dateLabel = "ayer";
-    }
-  } else {
-    // No matches have started/scored yet. Use normal schedule fallback.
-    const todayMatches = matchesByDate.get(todayStr) || [];
-    if (todayMatches.length > 0) {
-      activeDate = todayStr;
-      dateLabel = "hoy";
-    } else {
-      const yesterdayMatches = matchesByDate.get(yesterdayStr) || [];
-      if (yesterdayMatches.length > 0) {
-        activeDate = yesterdayStr;
-        dateLabel = "ayer";
-      } else {
-        const datesWithMatches = Array.from(matchesByDate.keys())
-          .filter(d => d < todayStr)
-          .sort((a, b) => b.localeCompare(a));
-        if (datesWithMatches.length > 0) {
-          activeDate = datesWithMatches[0];
-          dateLabel = "ayer";
-        }
-      }
-    }
-  }
+  if (datesWithResults.length === 0) return null;
 
-  if (!activeDate) return null;
+  // Partidos de esas fechas que ya tienen resultado
+  const targetMatches = datesWithResults
+    .flatMap(d => matchesByDate.get(d) || [])
+    .filter(m => m.home_score !== null && m.away_score !== null);
 
-  const targetMatches = matchesByDate.get(activeDate) || [];
   const targetMatchIds = targetMatches.map(m => m.id);
 
   if (targetMatchIds.length === 0) return null;
@@ -662,13 +644,85 @@ async function getDailyHero() {
   const hero = candidates[0];
 
   return {
-    dateLabel,
-    dateStr: activeDate,
+    dateLabel: datesWithResults.length === 1 ? datesWithResults[0] : `${datesWithResults[datesWithResults.length-1]} – ${datesWithResults[0]}`,
     user: hero.user,
     points: hero.points,
     exactos: hero.exactos,
     predictions: hero.predictions
   };
+}
+
+async function getMotivationSettings() {
+  await getCurrentProfile({ requireAuth: true });
+  const { data, error } = await supabase
+    .from("motivation_settings")
+    .select("enabled, threshold, message, title, force_targets")
+    .eq("id", 1)
+    .maybeSingle();
+  if (error) throw error;
+  return data || { enabled: false, threshold: 10, message: "", title: "¡Está cerca!", force_targets: [] };
+}
+
+async function updateMotivationSettings(payload) {
+  await getCurrentProfile({ requireAdmin: true });
+  const updates = {};
+  if (typeof payload?.enabled === "boolean") updates.enabled = payload.enabled;
+  if (typeof payload?.message === "string") updates.message = payload.message;
+  if (typeof payload?.title === "string") updates.title = payload.title;
+  if (payload?.threshold != null) updates.threshold = Number(payload.threshold);
+  if (Array.isArray(payload?.force_targets)) updates.force_targets = payload.force_targets;
+  updates.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("motivation_settings")
+    .update(updates)
+    .eq("id", 1)
+    .select("enabled, threshold, message, title, force_targets")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function clearMotivationForceTarget(userId) {
+  // Elimina al usuario de force_targets después de que vio el modal
+  const { data: current } = await supabase
+    .from("motivation_settings")
+    .select("force_targets")
+    .eq("id", 1)
+    .maybeSingle();
+  if (!current) return;
+  const targets = current.force_targets || [];
+  if (!targets.includes("all") && !targets.includes(userId)) return;
+  const next = targets.includes("all") ? [] : targets.filter(id => id !== userId);
+  await supabase.from("motivation_settings").update({ force_targets: next }).eq("id", 1);
+}
+
+async function getDailyReminderSettings() {
+  await getCurrentProfile({ requireAuth: true });
+  const { data, error } = await supabase
+    .from("daily_reminder_settings")
+    .select("enabled, message")
+    .eq("id", 1)
+    .maybeSingle();
+  if (error) throw error;
+  return data || { enabled: false, message: "" };
+}
+
+async function updateDailyReminderSettings(payload) {
+  await getCurrentProfile({ requireAdmin: true });
+  const updates = {};
+  if (typeof payload?.enabled === "boolean") updates.enabled = payload.enabled;
+  if (typeof payload?.message === "string") updates.message = payload.message;
+  updates.updated_at = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("daily_reminder_settings")
+    .update(updates)
+    .eq("id", 1)
+    .select("enabled, message")
+    .single();
+  if (error) throw error;
+  return data;
 }
 
 async function getStats() {
@@ -792,9 +846,12 @@ async function lockMatchPredictions(matchId, locked) {
 
 async function saveMatchScore(matchId, payload) {
   await getCurrentProfile({ requireAdmin: true });
+  // Guardar un marcador (incluso el 0-0 inicial) significa que el partido ya
+  // empezó, así que cerramos pronósticos automáticamente sin depender del
+  // cron ni de que match_date esté correcta.
   const { data, error } = await supabase
     .from("matches")
-    .update({ home_score: payload.home_score, away_score: payload.away_score })
+    .update({ home_score: payload.home_score, away_score: payload.away_score, predictions_locked: true })
     .eq("id", matchId)
     .select("*")
     .maybeSingle();
@@ -838,6 +895,108 @@ async function setMatchResult(matchId, payload) {
   return match;
 }
 
+async function propagateBracketWinner(matchId, winner) {
+  // winner: 'home' | 'away' — para partidos que se definieron por penales
+  await getCurrentProfile({ requireAdmin: true });
+  const { data: match, error } = await supabase
+    .from("matches")
+    .select("home_team, away_team, logo_home, logo_away, winner_next_match_id, winner_next_slot, loser_next_match_id, loser_next_slot")
+    .eq("id", matchId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!match) throw httpError(404, "Partido no encontrado");
+
+  const isHome = winner === "home";
+  const winnerTeam = isHome ? match.home_team : match.away_team;
+  const winnerLogo = isHome ? match.logo_home  : match.logo_away;
+  const loserTeam  = isHome ? match.away_team  : match.home_team;
+  const loserLogo  = isHome ? match.logo_away  : match.logo_home;
+
+  if (match.winner_next_match_id) {
+    const updateWinner = match.winner_next_slot === "home"
+      ? { home_team: winnerTeam, logo_home: winnerLogo }
+      : { away_team: winnerTeam, logo_away: winnerLogo };
+    await supabase.from("matches").update(updateWinner).eq("id", match.winner_next_match_id);
+  }
+
+  if (match.loser_next_match_id) {
+    const updateLoser = match.loser_next_slot === "home"
+      ? { home_team: loserTeam, logo_home: loserLogo }
+      : { away_team: loserTeam, logo_away: loserLogo };
+    await supabase.from("matches").update(updateLoser).eq("id", match.loser_next_match_id);
+  }
+}
+
+async function getBonusSubmittedValues() {
+  await getCurrentProfile({ requireAdmin: true });
+  const { data } = await supabase
+    .from("bonus_predictions")
+    .select("type, value");
+  const result = {};
+  for (const row of data || []) {
+    if (!result[row.type]) result[row.type] = new Set();
+    if (row.value) result[row.type].add(row.value.trim());
+  }
+  // Convertir Sets a arrays ordenados
+  const out = {};
+  for (const [type, set] of Object.entries(result)) out[type] = [...set].sort();
+  return out;
+}
+
+async function getBonusOfficialResults() {
+  await getCurrentProfile({ requireAdmin: true });
+  const { data } = await supabase.from("bonus_official").select("type, official_value");
+  const result = {};
+  for (const row of data || []) result[row.type] = row.official_value;
+  return result;
+}
+
+async function gradeBonusPredictions(results) {
+  // results: { champion, runner_up, top_scorer, best_player, best_goalkeeper }
+  await getCurrentProfile({ requireAdmin: true });
+
+  const POINTS = { champion: 5, runner_up: 3, top_scorer: 3, best_player: 3, best_goalkeeper: 3 };
+
+  for (const [type, officialValue] of Object.entries(results)) {
+    if (!officialValue || !officialValue.trim()) continue;
+    const official = officialValue.trim().toLowerCase();
+
+    // Guardar resultado oficial
+    await supabase.from("bonus_official").upsert(
+      { type, official_value: officialValue.trim(), updated_at: new Date().toISOString() },
+      { onConflict: "type" }
+    );
+
+    const { data: preds } = await supabase
+      .from("bonus_predictions")
+      .select("id, value")
+      .eq("type", type);
+
+    if (!preds || preds.length === 0) continue;
+
+    for (const pred of preds) {
+      const isCorrect = pred.value?.trim().toLowerCase() === official;
+      const { error: upErr } = await supabase
+        .from("bonus_predictions")
+        .update({ points_earned: isCorrect ? POINTS[type] : 0 })
+        .eq("id", pred.id);
+      if (upErr) throw new Error(`[${type}] ${upErr.message}`);
+    }
+  }
+}
+
+async function revertBonusPredictions() {
+  await getCurrentProfile({ requireAdmin: true });
+  // Quitar puntos a todos los bonus_predictions
+  const { error } = await supabase
+    .from("bonus_predictions")
+    .update({ points_earned: null })
+    .not("id", "is", null);
+  if (error) throw new Error(error.message);
+  // Borrar resultados oficiales guardados
+  await supabase.from("bonus_official").delete().not("type", "is", null);
+}
+
 async function reopenMatch(matchId) {
   await getCurrentProfile({ requireAdmin: true });
   await supabase.from("predictions").update({ points_earned: null }).eq("match_id", matchId);
@@ -864,7 +1023,8 @@ async function listAdminPredictions() {
 
   const { data: predictions, error: predictionsError } = await supabase
     .from("predictions")
-    .select("id, user_id, match_id, pred_home, pred_away, points_earned");
+    .select("id, user_id, match_id, pred_home, pred_away, points_earned")
+    .range(0, 19999);
   if (predictionsError) throw predictionsError;
 
   const { data: profiles, error: profilesError } = await supabase
@@ -891,6 +1051,357 @@ async function listAdminPredictions() {
   });
 }
 
+async function getEstadisticas() {
+  await getCurrentProfile({ requireAuth: true });
+  const rules = await getScoringRules();
+
+  const { data: profiles } = await supabase
+    .from("public_profiles")
+    .select("id, name, avatar_url, role, paid")
+    .eq("active", true);
+
+  const { data: firstMatch } = await supabase
+    .from("matches")
+    .select("match_date")
+    .order("match_date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const hasStarted = firstMatch && new Date() >= new Date(firstMatch.match_date);
+
+  let eligibleUsers = profiles || [];
+  if (hasStarted) eligibleUsers = eligibleUsers.filter(u => u.paid || u.role === "admin");
+
+  const { data: finalizedMatches } = await supabase
+    .from("matches")
+    .select("id, match_date, home_score, away_score")
+    .not("home_score", "is", null)
+    .not("away_score", "is", null)
+    .order("match_date", { ascending: true });
+
+  const fMatches = finalizedMatches || [];
+  const matchMap = new Map(fMatches.map(m => [m.id, m]));
+  const fMatchIds = fMatches.map(m => m.id);
+
+  let finPredictions = [];
+  if (fMatchIds.length > 0) {
+    const { data } = await supabase
+      .from("predictions")
+      .select("user_id, match_id, pred_home, pred_away, updated_at")
+      .in("match_id", fMatchIds)
+      .range(0, 19999);
+    finPredictions = data || [];
+  }
+
+  // All predictions (for count + "anticipado": updated_at vs match_date)
+  const { data: allUserPreds } = await supabase
+    .from("predictions")
+    .select("user_id, match_id, updated_at")
+    .range(0, 19999);
+
+  const { data: triviaAnswers } = await supabase
+    .from("daily_responses")
+    .select("user_id, is_correct, answered_date");
+
+  const { data: bonusAnswers } = await supabase
+    .from("bonus_predictions")
+    .select("user_id, points_earned")
+    .not("points_earned", "is", null);
+
+  const { data: allMatches } = await supabase.from("matches").select("id");
+  const totalMatches = (allMatches || []).length;
+
+  // Fetch all matches (with match_date) for "anticipado" stat
+  const { data: allMatchesFull } = await supabase
+    .from("matches")
+    .select("id, match_date");
+  const allMatchDateMap = new Map((allMatchesFull || []).map(m => [m.id, m.match_date]));
+
+  const userStats = new Map();
+  for (const u of eligibleUsers) {
+    userStats.set(u.id, {
+      id: u.id, name: u.name, avatar_url: u.avatar_url || null,
+      exactos: 0, ganadores: 0, zeroPts: 0, onePts: 0,
+      predCount: 0, finPredCount: 0, triviaCorrect: 0, triviaTotal: 0,
+      anticipadoMinutes: [], // minutes before match for each pred
+    });
+  }
+
+  for (const pred of finPredictions) {
+    const s = userStats.get(pred.user_id);
+    if (!s) continue;
+    const match = matchMap.get(pred.match_id);
+    if (!match) continue;
+    const pts = scorePrediction(pred.pred_home, pred.pred_away, match.home_score, match.away_score, rules);
+    s.finPredCount++;
+    if (pts === (rules?.exact_result ?? 3)) s.exactos++;
+    else if (pts === 1) { s.ganadores++; s.onePts++; }
+    else if (pts > 1) s.ganadores++;
+    if (pts === 0) s.zeroPts++;
+  }
+
+  for (const p of (allUserPreds || [])) {
+    const s = userStats.get(p.user_id);
+    if (!s) continue;
+    s.predCount++;
+    // "Anticipado": how many minutes before match start
+    const matchDate = allMatchDateMap.get(p.match_id);
+    if (matchDate && p.updated_at) {
+      const minsBefore = (new Date(matchDate).getTime() - new Date(p.updated_at).getTime()) / 60000;
+      if (minsBefore > 0) s.anticipadoMinutes.push(minsBefore); // only pre-match
+    }
+  }
+
+  for (const t of (triviaAnswers || [])) {
+    const s = userStats.get(t.user_id);
+    if (!s) continue;
+    s.triviaTotal++;
+    if (t.is_correct) s.triviaCorrect++;
+  }
+
+  // Days at 1st place: cumulative ranking per day
+  const getColDate = (iso) => {
+    const d = new Date(new Date(iso).getTime() - 5 * 3600000);
+    return d.toISOString().slice(0, 10);
+  };
+
+  const matchesByDay = new Map();
+  for (const m of fMatches) {
+    const day = getColDate(m.match_date);
+    const list = matchesByDay.get(day) || [];
+    list.push(m);
+    matchesByDay.set(day, list);
+  }
+
+  const predByUserMatch = new Map();
+  for (const pred of finPredictions) {
+    predByUserMatch.set(`${pred.user_id}:${pred.match_id}`, pred);
+  }
+
+  // Bonus total por usuario (sin fecha, igual que en performanceData)
+  const bonusByUser = new Map();
+  for (const b of bonusAnswers || []) {
+    bonusByUser.set(b.user_id, (bonusByUser.get(b.user_id) || 0) + b.points_earned);
+  }
+
+  // Trivia correctas indexadas por usuario+fecha
+  const triviaByUserDay = new Map();
+  for (const t of triviaAnswers || []) {
+    if (!t.is_correct || !t.answered_date) continue;
+    const key = t.user_id;
+    const arr = triviaByUserDay.get(key) || [];
+    arr.push(t.answered_date);
+    triviaByUserDay.set(key, arr);
+  }
+
+  const sortedDays = Array.from(matchesByDay.keys()).sort();
+  const cumMatchPts = new Map(eligibleUsers.map(u => [u.id, 0]));
+  const daysAtFirst = new Map(eligibleUsers.map(u => [u.id, 0]));
+  const daysAtBottom = new Map(eligibleUsers.map(u => [u.id, 0]));
+  const positionByDay = new Map(); // userId -> [position per day]
+
+  const totalUsers = eligibleUsers.length;
+
+  for (const day of sortedDays) {
+    for (const m of (matchesByDay.get(day) || [])) {
+      for (const u of eligibleUsers) {
+        const pred = predByUserMatch.get(`${u.id}:${m.id}`);
+        if (pred) {
+          const pts = scorePrediction(pred.pred_home, pred.pred_away, m.home_score, m.away_score, rules);
+          cumMatchPts.set(u.id, (cumMatchPts.get(u.id) || 0) + pts);
+        }
+      }
+    }
+    // Puntos totales = partidos + trivia hasta ese día + bonus (igual que performanceData)
+    const totalPts = (u) => {
+      const matchPts = cumMatchPts.get(u.id) || 0;
+      const triviaPts = (triviaByUserDay.get(u.id) || []).filter(d => d <= day).length * 0.5;
+      const bonusPts = bonusByUser.get(u.id) || 0;
+      return matchPts + triviaPts + bonusPts;
+    };
+    const sorted = [...eligibleUsers].sort((a, b) => totalPts(b) - totalPts(a));
+    const maxPts = totalPts(sorted[0]);
+    const bottomThreshold = Math.floor(totalUsers * 0.67);
+    for (const [i, u] of sorted.entries()) {
+      if (!positionByDay.has(u.id)) positionByDay.set(u.id, []);
+      positionByDay.get(u.id).push(i + 1);
+      if (totalPts(u) === maxPts && maxPts > 0) {
+        daysAtFirst.set(u.id, (daysAtFirst.get(u.id) || 0) + 1);
+      }
+      if (i >= bottomThreshold) {
+        daysAtBottom.set(u.id, (daysAtBottom.get(u.id) || 0) + 1);
+      }
+    }
+  }
+
+  // Climb / drop: first recorded position vs latest position
+  const climbMap = new Map();
+  const dropMap = new Map();
+  const positionRangeMap = new Map(); // for "tibios": max - min
+  const avgPositionMap = new Map();   // for "tibios": average position
+  for (const u of eligibleUsers) {
+    const hist = positionByDay.get(u.id) || [];
+    if (hist.length >= 2) {
+      const delta = hist[0] - hist[hist.length - 1]; // positive = improved
+      climbMap.set(u.id, Math.max(0, delta));
+      dropMap.set(u.id, Math.max(0, -delta));
+      positionRangeMap.set(u.id, Math.max(...hist) - Math.min(...hist));
+      avgPositionMap.set(u.id, hist.reduce((a, b) => a + b, 0) / hist.length);
+    } else {
+      climbMap.set(u.id, 0);
+      dropMap.set(u.id, 0);
+      positionRangeMap.set(u.id, 0);
+      avgPositionMap.set(u.id, hist[0] || totalUsers);
+    }
+  }
+
+  const users = Array.from(userStats.values()).map(s => {
+    const mins = s.anticipadoMinutes;
+    const avgMinsBefore = mins.length > 0
+      ? Math.round(mins.reduce((a, b) => a + b, 0) / mins.length)
+      : 0;
+    return {
+      id: s.id, name: s.name, avatar_url: s.avatar_url,
+      exactos: s.exactos,
+      ganadores: s.ganadores,
+      zeroPts: s.zeroPts,
+      onePts: s.onePts,
+      predCount: s.predCount,
+      finPredCount: s.finPredCount,
+      triviaCorrect: s.triviaCorrect,
+      triviaTotal: s.triviaTotal,
+      daysAtFirst: daysAtFirst.get(s.id) || 0,
+      daysAtBottom: daysAtBottom.get(s.id) || 0,
+      climb: climbMap.get(s.id) || 0,
+      drop: dropMap.get(s.id) || 0,
+      positionRange: positionRangeMap.get(s.id) || 0,
+      avgPosition: Math.round(avgPositionMap.get(s.id) || totalUsers),
+      avgMinsBefore,
+      anticipadoCount: mins.length,
+    };
+  });
+
+  return { users, totalMatches, finalizedCount: fMatches.length, totalUsers };
+}
+
+// Calcula la tabla de cada grupo y rellena los equipos reales de 16avos
+// (R32) reemplazando los placeholders "Winner Group X", "Runner-up Group X"
+// y "3rd Group A/B/C/..." por los equipos que realmente clasificaron.
+// Desempate: puntos, diferencia de gol, goles a favor (sin fair-play ni
+// head-to-head — suficiente para casi todos los casos reales).
+async function calculateRound32Qualifiers() {
+  await getCurrentProfile({ requireAdmin: true });
+
+  const { data: allMatches, error } = await supabase
+    .from("matches")
+    .select("id, home_team, away_team, logo_home, logo_away, home_score, away_score, status, phase, group_name");
+  if (error) throw error;
+
+  const groupMatches = allMatches.filter((m) => m.phase === "group" && m.group_name);
+  const r32Matches = allMatches.filter((m) => m.phase === "R32");
+
+  // Mapa de logos por nombre de equipo (de cualquier partido de grupos)
+  const logoMap = new Map();
+  for (const m of groupMatches) {
+    if (m.home_team && m.logo_home) logoMap.set(m.home_team, m.logo_home);
+    if (m.away_team && m.logo_away) logoMap.set(m.away_team, m.logo_away);
+  }
+
+  // Tabla por grupo
+  const tableByGroup = new Map(); // group -> Map(team -> stats)
+  for (const m of groupMatches) {
+    if (m.home_score == null || m.away_score == null) continue;
+    const g = m.group_name;
+    if (!tableByGroup.has(g)) tableByGroup.set(g, new Map());
+    const table = tableByGroup.get(g);
+
+    const ensure = (team) => {
+      if (!table.has(team)) table.set(team, { team, pts: 0, gf: 0, ga: 0, played: 0 });
+      return table.get(team);
+    };
+    const home = ensure(m.home_team);
+    const away = ensure(m.away_team);
+    home.played++; away.played++;
+    home.gf += m.home_score; home.ga += m.away_score;
+    away.gf += m.away_score; away.ga += m.home_score;
+    if (m.home_score > m.away_score) home.pts += 3;
+    else if (m.home_score < m.away_score) away.pts += 3;
+    else { home.pts += 1; away.pts += 1; }
+  }
+
+  const sortTeams = (arr) =>
+    [...arr].sort((a, b) => (b.pts - a.pts) || ((b.gf - b.ga) - (a.gf - a.ga)) || (b.gf - a.gf));
+
+  const winners = new Map();   // group -> team name
+  const runnerUps = new Map(); // group -> team name
+  const thirdsList = [];       // [{ group, team, pts, gd, gf }]
+
+  for (const [group, table] of tableByGroup.entries()) {
+    const sorted = sortTeams([...table.values()]);
+    if (sorted[0]) winners.set(group, sorted[0].team);
+    if (sorted[1]) runnerUps.set(group, sorted[1].team);
+    if (sorted[2]) thirdsList.push({ group, team: sorted[2].team, pts: sorted[2].pts, gd: sorted[2].gf - sorted[2].ga, gf: sorted[2].gf });
+  }
+
+  const bestThirds = [...thirdsList]
+    .sort((a, b) => (b.pts - a.pts) || (b.gd - a.gd) || (b.gf - a.gf))
+    .slice(0, 8);
+  const qualifiedThirdGroups = new Map(bestThirds.map((t) => [t.group, t.team]));
+
+  const resolvePlaceholder = (placeholder) => {
+    if (!placeholder) return null;
+    let m = placeholder.match(/^Winner Group (\w)$/);
+    if (m) return winners.get(m[1]) || null;
+    m = placeholder.match(/^Runner-up Group (\w)$/);
+    if (m) return runnerUps.get(m[1]) || null;
+    m = placeholder.match(/^3rd Group ([\w/]+)$/);
+    if (m) {
+      const candidateGroups = m[1].split("/");
+      for (const g of candidateGroups) {
+        if (qualifiedThirdGroups.has(g)) return qualifiedThirdGroups.get(g);
+      }
+      return null;
+    }
+    return null;
+  };
+
+  let updated = 0;
+  const unresolved = [];
+
+  for (const match of r32Matches) {
+    const realHome = resolvePlaceholder(match.home_team);
+    const realAway = resolvePlaceholder(match.away_team);
+
+    if (!realHome && !realAway) continue; // ya tiene nombres reales o no se pudo resolver nada
+
+    const updates = {};
+    if (realHome && realHome !== match.home_team) {
+      updates.home_team = realHome;
+      updates.logo_home = logoMap.get(realHome) || "";
+    }
+    if (realAway && realAway !== match.away_team) {
+      updates.away_team = realAway;
+      updates.logo_away = logoMap.get(realAway) || "";
+    }
+
+    if (Object.keys(updates).length === 0) continue;
+
+    const { error: updError } = await supabase.from("matches").update(updates).eq("id", match.id);
+    if (updError) throw updError;
+    updated++;
+
+    if (!realHome) unresolved.push(match.home_team);
+    if (!realAway) unresolved.push(match.away_team);
+  }
+
+  return {
+    ok: true,
+    updated,
+    totalR32: r32Matches.length,
+    unresolved: [...new Set(unresolved)],
+    bestThirds: bestThirds.map((t) => ({ group: t.group, team: t.team, pts: t.pts })),
+  };
+}
+
 function parseRequestPath(path) {
   const parsed = new URL(path, "https://local.app");
   return { pathname: parsed.pathname, searchParams: parsed.searchParams };
@@ -900,6 +1411,7 @@ export const api = {
   async get(path) {
     const { pathname, searchParams } = parseRequestPath(path);
 
+    if (pathname === "/teams")           return { data: await getTeams() };
     if (pathname === "/matches")         return { data: await listMatches() };
     if (pathname === "/predictions/me") {
       const user = await getCurrentProfile({ requireAuth: true });
@@ -909,6 +1421,9 @@ export const api = {
     if (pathname === "/ranking/daily-hero") return { data: await getDailyHero() };
     if (pathname === "/results")         return { data: await getResults() };
     if (pathname === "/stats")           return { data: await getStats() };
+    if (pathname === "/motivation-settings") return { data: await getMotivationSettings() };
+    if (pathname === "/daily-reminder-settings") return { data: await getDailyReminderSettings() };
+    if (pathname === "/estadisticas")    return { data: await getEstadisticas() };
     if (pathname === "/admin/users")     return { data: await listAdminUsers() };
     if (pathname === "/admin/predictions") return { data: await listAdminPredictions() };
     if (pathname === "/chat/messages")   return { data: await listChatMessages() };
@@ -923,6 +1438,9 @@ export const api = {
       const userId = searchParams.get("userId");
       return { data: await getAdminTriviaQuestion(userId) };
     }
+    if (pathname === "/admin/trivia/vip-overrides") return { data: await listVipOverrides() };
+    if (pathname === "/admin/bonus/official")   return { data: await getBonusOfficialResults() };
+    if (pathname === "/admin/bonus/submitted")  return { data: await getBonusSubmittedValues() };
 
     const userPredictionsMatch = pathname.match(/^\/users\/([^/]+)\/predictions$/);
     if (userPredictionsMatch) return { data: await getUserPredictions(userPredictionsMatch[1]) };
@@ -938,6 +1456,9 @@ export const api = {
       return { data: await getMatchLeaderboard(leaderboardMatch[1], Number(searchParams.get("limit") || 5)) };
     }
 
+    const userProfileMatch = pathname.match(/^\/users\/([^/]+)\/profile$/);
+    if (userProfileMatch) return { data: await getUserProfile(userProfileMatch[1]) };
+
     throw httpError(404, `Ruta no implementada: GET ${pathname}`);
   },
 
@@ -951,6 +1472,11 @@ export const api = {
     if (pathname === "/daily-trivia/answer") return { data: await answerDailyQuestion(payload) };
     if (pathname === "/daily-trivia/reset") return { data: await resetDailyQuestion() };
     if (pathname === "/admin/trivia/answer") return { data: await answerTriviaByAdmin(payload) };
+    if (pathname === "/admin/trivia/vip-override") return { data: await setVipOverride(payload) };
+    if (pathname === "/admin/trivia/vip-override/delete") return { data: await deleteVipOverride(payload) };
+    if (pathname === "/admin/calculate-qualifiers") return { data: await calculateRound32Qualifiers() };
+    if (pathname === "/admin/bonus/grade")  return { data: await gradeBonusPredictions(payload) };
+    if (pathname === "/admin/bonus/revert") return { data: await revertBonusPredictions() };
     throw httpError(404, `Ruta no implementada: POST ${pathname}`);
   },
 
@@ -966,11 +1492,21 @@ export const api = {
     const reopen = pathname.match(/^\/matches\/([^/]+)\/reopen$/);
     if (reopen)     return { data: await reopenMatch(reopen[1]) };
 
+    const propagate = pathname.match(/^\/matches\/([^/]+)\/propagate$/);
+    if (propagate)  return { data: await propagateBracketWinner(propagate[1], payload.winner) };
+
+    if (pathname === "/admin/bonus/grade") return { data: await gradeBonusPredictions(payload) };
+
     const lockRoute = pathname.match(/^\/matches\/([^/]+)\/lock$/);
     if (lockRoute)  return { data: await lockMatchPredictions(lockRoute[1], Boolean(payload?.locked)) };
 
     const paidRoute = pathname.match(/^\/admin\/users\/([^/]+)\/paid$/);
     if (paidRoute)  return { data: await setPaid(paidRoute[1], Boolean(payload?.paid)) };
+
+    if (pathname === "/profile/me") return { data: await updateMyProfile(payload) };
+    if (pathname === "/motivation-settings") return { data: await updateMotivationSettings(payload) };
+    if (pathname === "/motivation-settings/clear-force") return { data: await clearMotivationForceTarget(payload?.user_id) };
+    if (pathname === "/daily-reminder-settings") return { data: await updateDailyReminderSettings(payload) };
 
     throw httpError(404, `Ruta no implementada: PUT ${pathname}`);
   },
@@ -982,6 +1518,8 @@ export const api = {
     throw httpError(404, `Ruta no implementada: DELETE ${pathname}`);
   },
 };
+
+export { uploadMyAvatar };
 
 export async function triggerSync() {
   const url = process.env.REACT_APP_SUPABASE_URL;
@@ -999,6 +1537,27 @@ export async function triggerSync() {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data; // { ok, synced, pointsUpdated, log }
+}
+
+export async function sendPushNotification({ title, body, url, target = "all" }) {
+  const supaUrl = process.env.REACT_APP_SUPABASE_URL;
+  if (!supaUrl) throw new Error("Falta REACT_APP_SUPABASE_URL en .env");
+
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData?.session?.access_token;
+  if (!accessToken) throw new Error("No hay sesión activa");
+
+  const res = await fetch(`${supaUrl}/functions/v1/send-push`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ title, body, url, target }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data; // { ok, sent, failed, total }
 }
 
 export function formatApiError(detail) {
@@ -1024,6 +1583,7 @@ export function formatDate(iso) {
     return d.toLocaleString("es-ES", {
       weekday: "short", day: "2-digit", month: "short",
       hour: "2-digit", minute: "2-digit",
+      timeZone: "America/Bogota",
     });
   } catch {
     return iso;
@@ -1099,8 +1659,17 @@ async function getDailyQuestion(testOffset = 0, testDayOffset = 0) {
   const user = await getCurrentProfile({ requireAuth: true });
   const dateStr = getColombiaDateStr(Number(testDayOffset) || 0);
 
+  // Verifica si el admin asignó una pregunta VIP para este usuario hoy
+  const { data: override } = await supabase
+    .from("trivia_overrides")
+    .select("question_id")
+    .eq("user_id", user.id)
+    .eq("override_date", dateStr)
+    .maybeSingle();
+
   const baseId = getDailyQuestionForUser(user.id, dateStr);
-  const questionId = ((baseId - 1 + Number(testOffset)) % TOTAL_TRIVIA_QUESTIONS) + 1;
+  const questionId = override?.question_id
+    ?? ((baseId - 1 + Number(testOffset)) % TOTAL_TRIVIA_QUESTIONS) + 1;
 
   const { data: q, error: qErr } = await supabase
     .from("trivia_questions")
@@ -1181,7 +1750,8 @@ async function answerDailyQuestion(payload) {
     throw httpError(400, "Pregunta no encontrada");
   }
 
-  const isCorrect = q.correct_index === selectedIndex;
+  // correct_index = -1 significa pregunta bonus: siempre correcta sin importar la opción
+  const isCorrect = q.correct_index === -1 || q.correct_index === selectedIndex;
   
   const { error: insErr } = await supabase
     .from("daily_responses")
@@ -1259,6 +1829,39 @@ async function answerTriviaByAdmin(payload) {
   });
   if (error) throw httpError(500, "No se pudo guardar la respuesta");
   return { ok: true, is_correct: isCorrect, correct_index: q.correct_index };
+}
+
+async function setVipOverride({ user_id, override_date }) {
+  await getCurrentProfile({ requireAdmin: true });
+  if (!user_id || !override_date) throw httpError(400, "Faltan user_id o override_date");
+
+  const { error } = await supabase
+    .from("trivia_overrides")
+    .upsert({ user_id, question_id: 43, override_date }, { onConflict: "user_id,override_date" });
+
+  if (error) throw httpError(500, "No se pudo guardar el override: " + error.message);
+  return { ok: true };
+}
+
+async function deleteVipOverride({ user_id, override_date }) {
+  await getCurrentProfile({ requireAdmin: true });
+  const { error } = await supabase
+    .from("trivia_overrides")
+    .delete()
+    .eq("user_id", user_id)
+    .eq("override_date", override_date);
+  if (error) throw httpError(500, error.message);
+  return { ok: true };
+}
+
+async function listVipOverrides() {
+  await getCurrentProfile({ requireAdmin: true });
+  const { data, error } = await supabase
+    .from("trivia_overrides")
+    .select("id, user_id, override_date, profiles(name)")
+    .order("override_date", { ascending: false });
+  if (error) throw httpError(500, error.message);
+  return data;
 }
 
 async function resetDailyQuestion() {
@@ -1344,6 +1947,7 @@ async function getUserTrivia(targetUserId) {
   const { data: questions, error: qErr } = await supabase
     .from("trivia_questions")
     .select("id, question, options, correct_index, note")
+    .lte("id", 42)
     .order("id", { ascending: true });
   if (qErr) throw qErr;
 
@@ -1353,13 +1957,19 @@ async function getUserTrivia(targetUserId) {
     .eq("user_id", targetUserId);
   if (rErr) throw rErr;
 
-  const respMap = new Map(responses.map((r) => [r.question_id, r]));
+  const qMap = new Map(questions.map((q) => [q.id, q]));
   const todayStr = getColombiaDateStr(0);
 
-  return questions
-    .map((q) => {
-      const resp = respMap.get(q.id);
-      if (!resp) return null;
+  // Iterar por fecha respondida (no por pregunta) para evitar duplicados.
+  // Si la respuesta fue insertada por admin (question_id=43), usar la pregunta
+  // asignada por el algoritmo para esa fecha.
+  return responses
+    .map((resp) => {
+      const assignedQid = resp.question_id === 43
+        ? getDailyQuestionForUser(targetUserId, resp.answered_date)
+        : resp.question_id;
+      const q = qMap.get(assignedQid);
+      if (!q) return null;
       
       const isToday = resp.answered_date === todayStr;
       // Hide today's answer only when viewing someone else's trivia (privacy)
@@ -1379,4 +1989,211 @@ async function getUserTrivia(targetUserId) {
       };
     })
     .filter(Boolean);
+}
+
+async function updateMyProfile(payload) {
+  const current = await getCurrentProfile({ requireAuth: true });
+  const updates = {};
+  if (typeof payload?.name === "string" && payload.name.trim()) {
+    updates.name = payload.name.trim();
+  }
+  if (typeof payload?.avatar_url === "string") {
+    updates.avatar_url = payload.avatar_url;
+  }
+  if (Object.keys(updates).length === 0) return current;
+
+  const { data, error } = await supabase
+    .from("profiles")
+    .update(updates)
+    .eq("id", current.id)
+    .select("id, name, email, role, paid, active, avatar_url, created_at")
+    .single();
+  if (error) throw error;
+  return normalizeProfile(data);
+}
+
+// Comprime y redimensiona la imagen en el navegador antes de subirla
+async function compressImage(file, maxSize = 480, quality = 0.82) {
+  const dataUrl = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const img = await new Promise((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = reject;
+    el.src = dataUrl;
+  });
+
+  let { width, height } = img;
+  if (width > height && width > maxSize) {
+    height = Math.round((height * maxSize) / width);
+    width = maxSize;
+  } else if (height > maxSize) {
+    width = Math.round((width * maxSize) / height);
+    height = maxSize;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, width, height);
+
+  const blob = await new Promise((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", quality)
+  );
+  return blob;
+}
+
+async function uploadMyAvatar(file) {
+  const current = await getCurrentProfile({ requireAuth: true });
+
+  if (!file.type.startsWith("image/")) {
+    throw httpError(400, "El archivo debe ser una imagen");
+  }
+
+  const compressed = await compressImage(file);
+  const path = `${current.id}/avatar.jpg`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("avatars")
+    .upload(path, compressed, { contentType: "image/jpeg", upsert: true });
+  if (uploadError) throw uploadError;
+
+  const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(path);
+  const avatarUrl = `${urlData.publicUrl}?t=${Date.now()}`;
+
+  return updateMyProfile({ avatar_url: avatarUrl });
+}
+
+async function getUserProfile(targetUserId) {
+  await getCurrentProfile({ requireAuth: true });
+  const rules = await getScoringRules();
+
+  // Info básica del usuario
+  const { data: profile } = await supabase
+    .from("public_profiles")
+    .select("id, name, active, avatar_url")
+    .eq("id", targetUserId)
+    .maybeSingle();
+  if (!profile) throw new Error("Usuario no encontrado");
+
+  // Todos los partidos finalizados con fecha
+  const { data: finalizedMatches } = await supabase
+    .from("matches")
+    .select("id, home_score, away_score, match_date, home_team, away_team")
+    .not("home_score", "is", null)
+    .not("away_score", "is", null)
+    .order("match_date", { ascending: true });
+
+  // Todos los usuarios activos para calcular posición
+  const { data: allUsers } = await supabase
+    .from("public_profiles")
+    .select("id, name")
+    .eq("active", true);
+
+  // Predicciones de todos los usuarios en partidos finalizados
+  const matchIds = (finalizedMatches || []).map(m => m.id);
+  let allPredictions = [];
+  if (matchIds.length > 0) {
+    const { data } = await supabase
+      .from("predictions")
+      .select("user_id, match_id, pred_home, pred_away")
+      .in("match_id", matchIds)
+      .range(0, 19999);
+    allPredictions = data || [];
+  }
+
+  // Trivia correctas de todos
+  const { data: allDaily } = await supabase
+    .from("daily_responses")
+    .select("user_id, answered_date, is_correct");
+
+  // Bonus de todos
+  const { data: allBonus } = await supabase
+    .from("bonus_predictions")
+    .select("user_id, points_earned")
+    .not("points_earned", "is", null);
+
+  // Agrupa predicciones por usuario
+  const predsByUser = new Map();
+  for (const p of allPredictions) {
+    const arr = predsByUser.get(p.user_id) || [];
+    arr.push(p);
+    predsByUser.set(p.user_id, arr);
+  }
+
+  const matchMap = new Map((finalizedMatches || []).map(m => [m.id, m]));
+
+  // Bonus por usuario
+  const bonusByUser = new Map();
+  for (const b of allBonus || []) {
+    bonusByUser.set(b.user_id, (bonusByUser.get(b.user_id) || 0) + b.points_earned);
+  }
+
+  // Calcula puntos totales de un usuario hasta cierta fecha (inclusive)
+  function pointsUpTo(userId, untilDate) {
+    const matchPts = (predsByUser.get(userId) || []).reduce((sum, p) => {
+      const m = matchMap.get(p.match_id);
+      if (!m || m.match_date > untilDate) return sum;
+      return sum + scorePrediction(p.pred_home, p.pred_away, m.home_score, m.away_score, rules);
+    }, 0);
+    const triviaPts = (allDaily || [])
+      .filter(d => d.user_id === userId && d.is_correct && (d.answered_date + "T23:59:59Z") <= untilDate)
+      .length * 0.5;
+    const bonusPts = bonusByUser.get(userId) || 0;
+    return matchPts + triviaPts + bonusPts;
+  }
+
+  // Días únicos con partidos finalizados
+  const matchDays = [...new Set((finalizedMatches || []).map(m => m.match_date.slice(0, 10)))]
+    .sort();
+
+  // Para cada día, calcula la posición del usuario target
+  const performanceData = matchDays.map(day => {
+    const untilDate = day + "T23:59:59Z";
+    const scores = (allUsers || []).map(u => ({
+      user_id: u.id,
+      pts: pointsUpTo(u.id, untilDate),
+    }));
+    scores.sort((a, b) => b.pts - a.pts);
+    const pos = scores.findIndex(s => s.user_id === targetUserId) + 1;
+    const myPts = scores.find(s => s.user_id === targetUserId)?.pts ?? 0;
+    return { day, position: pos || scores.length, points: myPts, total: scores.length };
+  });
+
+  // Stats del usuario target
+  const myPreds = predsByUser.get(targetUserId) || [];
+  let exactos = 0, ganadores = 0, parciales = 0, sinAcierto = 0;
+  for (const p of myPreds) {
+    const m = matchMap.get(p.match_id);
+    if (!m) continue;
+    const pts = scorePrediction(p.pred_home, p.pred_away, m.home_score, m.away_score, rules);
+    if (pts === (rules?.exact_result ?? 3)) exactos++;
+    else if (pts === (rules?.correct_winner ?? 2) || pts === (rules?.correct_draw ?? 2)) ganadores++;
+    else if (pts === 1) parciales++;
+    else sinAcierto++;
+  }
+
+  const triviaCorrect = (allDaily || []).filter(d => d.user_id === targetUserId && d.is_correct).length;
+  const triviaTotal = (allDaily || []).filter(d => d.user_id === targetUserId).length;
+  const currentPoints = pointsUpTo(targetUserId, new Date().toISOString());
+  const currentRank = (() => {
+    const scores = (allUsers || []).map(u => ({ user_id: u.id, pts: pointsUpTo(u.id, new Date().toISOString()) }));
+    scores.sort((a, b) => b.pts - a.pts);
+    return scores.findIndex(s => s.user_id === targetUserId) + 1;
+  })();
+
+  return {
+    profile: { id: profile.id, name: profile.name, avatar_url: profile.avatar_url || null },
+    currentPoints,
+    currentRank,
+    totalUsers: (allUsers || []).length,
+    stats: { exactos, ganadores, parciales, sinAcierto, triviaCorrect, triviaTotal, matchesPlayed: myPreds.length },
+    performanceData,
+  };
 }
